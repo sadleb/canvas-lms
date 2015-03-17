@@ -16,7 +16,16 @@
       We want to actually see the id so that we can cross reference usage patterns back to the actual person on our end (even 
       the id itself is not personably identifiable info and thus doesn't violote GA's terms of service).%>
   ga('set', 'dimension1', '<%= @current_user.id %>');
-  
+
+  <%# Commented out for now b/c this has the potential to create an innacurate view of the user since it only grabs the first enrollment
+    but not the active enrollment for the course they are currently working with. We need to do something like grabbing the name
+    of the course for the page being viewed and match it up to the enrollment info we want to display. %>
+  <%# if @current_user.enrollments && !@current_user.enrollments.empty? %>
+  <%# enrollment = @current_user.enrollments.first %>
+  <%# ga('set', 'dimension2', '<%= enrollment.class.to_s %><%#');%> <%# E.g. TeacherEnrollment, StudentEnrollment, TaEnrollment, etc %>
+  <%# ga('set', 'dimension3', '<%= enrollment.long_name %><%#');%> <%# E.g. BZ Accelerator , D-7X. THURS 7-9 (TRACY) %>
+  <%# end %>
+
   ga('require', 'displayfeatures');
   ga('send', 'pageview');
 
