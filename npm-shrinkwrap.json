@@ -1,0 +1,44 @@
+{
+  "name": "canvas-lms",
+  "version": "0.0.0",
+  "dependencies": {
+    "brandable_css": {
+      "version": "0.0.62",
+      "from": "brandable_css@0.0.62",
+      "resolved": "https://registry.npmjs.org/brandable_css/-/brandable_css-0.0.62.tgz",
+      "dependencies": {
+        "node-zopfli": {
+          "version": "1.4.0",
+          "from": "node-zopfli@1.4.0",
+          "resolved": "https://registry.npmjs.org/node-zopfli/-/node-zopfli-1.4.0.tgz",
+          "dependencies": {
+            "node-pre-gyp": {
+              "version": "0.6.4",
+              "from": "node-pre-gyp@0.6.4",
+              "resolved": "https://registry.npmjs.org/node-pre-gyp/-/node-pre-gyp-0.6.4.tgz"
+            }
+          }
+        }
+      }
+    },
+    "babel-core": {
+      "version": "5.8.38",
+      "from": "babel-core@^5.0.0",
+      "resolved": "https://registry.npmjs.org/babel-core/-/babel-core-5.8.38.tgz",
+      "dependencies": {
+        "regenerator": {
+          "version": "0.8.35",
+          "from": "regenerator@0.8.35",
+          "resolved": "https://registry.npmjs.org/regenerator/-/regenerator-0.8.35.tgz",
+          "dependencies": {
+            "recast": {
+              "version": "0.10.24",
+              "from": "recast@0.10.24",
+              "resolved": "https://registry.npmjs.org/recast/-/recast-0.10.24.tgz"
+            }
+          }
+        }
+      }
+    }
+  }
+}
