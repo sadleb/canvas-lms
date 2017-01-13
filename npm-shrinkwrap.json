@@ -1,6 +1,7 @@
 {
   "name": "canvas-lms",
   "version": "0.0.0",
+  "dependencies": {
     "brandable_css": {
       "version": "0.0.62",
       "from": "https://registry.npmjs.org/brandable_css/-/brandable_css-0.0.62.tgz",
@@ -265,4 +266,5 @@
         }
       }
     }
+  }
 }
