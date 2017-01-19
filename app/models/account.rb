@@ -266,6 +266,15 @@ class Account < ActiveRecord::Base
     end
   end
 
+  def global_includes_hash
+    includes = {}
+    if allow_global_includes?
+      includes = {}
+      includes[:js] = settings[:global_javascript] if settings[:global_javascript].present?
+      includes[:css] = settings[:global_stylesheet] if settings[:global_stylesheet].present?
+    end
+    includes.present? ? includes : nil
+  end
 
   def mfa_settings
     settings[:mfa_settings].try(:to_sym) || :disabled
