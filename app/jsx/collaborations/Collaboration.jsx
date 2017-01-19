@@ -1,11 +1,12 @@
 define([
   'react',
+  'react-dom',
   'jsx/shared/DatetimeDisplay',
   './DeleteConfirmation',
   'i18n!react_collaborations',
   'compiled/str/splitAssetString',
   'jsx/collaborations/store/store'
-], (React, DatetimeDisplay, DeleteConfirmation, i18n, splitAssetString, store) => {
+], (React, ReactDOM, DatetimeDisplay, DeleteConfirmation, i18n, splitAssetString, store) => {
   class Collaboration extends React.Component {
     constructor (props) {
       super(props);
@@ -14,7 +15,6 @@ define([
       this.openConfirmation = this.openConfirmation.bind(this);
       this.closeConfirmation = this.closeConfirmation.bind(this);
       this.deleteCollaboration = this.deleteCollaboration.bind(this);
-      this.openModal = this.openModal.bind(this);
     }
 
     openConfirmation () {
@@ -27,7 +27,7 @@ define([
       this.setState({
         deleteConfirmationOpen: false
       }, () => {
-        React.findDOMNode(this.refs.deleteButton).focus()
+        ReactDOM.findDOMNode(this.refs.deleteButton).focus()
       });
     }
 
@@ -36,16 +36,10 @@ define([
       store.dispatch(this.props.deleteCollaboration(context, contextId, this.props.collaboration.id));
     }
 
-    openModal (e, url) {
-      e.preventDefault()
-      this.props.openModal(url)
-    }
-
     render () {
       let { collaboration } = this.props;
       let [context, contextId] = splitAssetString(ENV.context_asset_string);
-
-      let editUrl = `/${context}/${contextId}/external_tools/retrieve?content_item_id=${collaboration.id}&placement=collaboration&url=${collaboration.update_url}`
+      let editUrl = `/${context}/${contextId}/lti_collaborations/external_tools/retrieve?content_item_id=${collaboration.id}&placement=collaboration&url=${collaboration.update_url}&display=borderless`
 
       return (
         <div ref="wrapper" className='Collaboration'>
@@ -62,13 +56,15 @@ define([
             <DatetimeDisplay datetime={collaboration.updated_at} format='%b %d, %l:%M %p' />
           </div>
           <div className='Collaboration-actions'>
-            <a className='icon-edit' href={editUrl} rel='external' onClick={(e) => this.openModal(e, `${editUrl}&display=borderless`)}>
+            {collaboration.permissions.update && (<a className='icon-edit' href={editUrl}>
               <span className='screenreader-only'>{i18n.t('Edit Collaboration')}</span>
-            </a>
-            <button ref='deleteButton' className='btn btn-link' onClick={this.openConfirmation}>
-              <i className='icon-trash'></i>
-              <span className='screenreader-only'>{i18n.t('Delete Collaboration')}</span>
-            </button>
+            </a>)}
+
+            {collaboration.permissions.delete && (<button ref='deleteButton' className='btn btn-link' onClick={this.openConfirmation}>
+                <i className='icon-trash'></i>
+                <span className='screenreader-only'>{i18n.t('Delete Collaboration')}</span>
+              </button>
+            )}
           </div>
           {this.state.deleteConfirmationOpen &&
             <DeleteConfirmation collaboration={collaboration} onCancel={this.closeConfirmation} onDelete={this.deleteCollaboration} />

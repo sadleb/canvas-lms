@@ -13,11 +13,14 @@ require [
   'compiled/views/assignments/PeerReviewsSelector'
   'grading_standards'
   'manage_groups'
-], (Section,Assignment, EditHeaderView, EditView, SectionCollection,
+], (Section, Assignment, EditHeaderView, EditView, SectionCollection,
+
   DueDateList, OverrideView, AssignmentGroupSelector,
   GradingTypeSelector, GroupCategorySelector, PeerReviewsSelector) ->
 
   ENV.ASSIGNMENT.assignment_overrides = ENV.ASSIGNMENT_OVERRIDES
+
+  userIsAdmin = ENV.current_user_roles.includes('admin')
 
   assignment = new Assignment ENV.ASSIGNMENT
   assignment.urlRoot = ENV.URL_ROOT
@@ -33,6 +36,7 @@ require [
   groupCategorySelector = new GroupCategorySelector
     parentModel: assignment
     groupCategories: ENV?.GROUP_CATEGORIES || []
+    inClosedGradingPeriod: assignment.inClosedGradingPeriod()
   peerReviewsSelector = new PeerReviewsSelector
     parentModel: assignment
 
@@ -40,11 +44,6 @@ require [
       '#edit_assignment_header-cr'
     else
       '#edit_assignment_header'
-
-  editHeaderView = new EditHeaderView
-    el: headerEl
-    model: assignment
-  editHeaderView.render()
 
   editView = new EditView
     el: '#edit_assignment_form'
@@ -57,4 +56,12 @@ require [
       'js-assignment-overrides': new OverrideView
         model: dueDateList
         views: {}
-  editView.render()
+
+  editHeaderView = new EditHeaderView
+    el: headerEl
+    model: assignment
+    userIsAdmin: userIsAdmin
+    views:
+      'edit_assignment_form': editView
+
+  editHeaderView.render()

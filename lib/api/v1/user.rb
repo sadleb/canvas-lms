@@ -46,10 +46,12 @@ module Api::V1::User
     includes ||= []
     excludes ||= []
     api_json(user, current_user, session, API_USER_JSON_OPTS).tap do |json|
-
+      enrollment_json_opts = {}
       if !excludes.include?('pseudonym') && user_json_is_admin?(context, current_user)
         include_root_account = @domain_root_account.trust_exists?
-        if (sis_pseudonym = SisPseudonym.for(user, @domain_root_account, include_root_account))
+        sis_pseudonym = sis_pseudonym_for(user)
+        enrollment_json_opts[:sis_pseudonym] = sis_pseudonym
+        if sis_pseudonym
           # the sis fields on pseudonym are poorly named -- sis_user_id is
           # the id in the SIS import data, where on every other table
           # that's called sis_source_id.
@@ -73,7 +75,9 @@ module Api::V1::User
         json[:avatar_url] = avatar_url_for_user(user, blank_fallback)
       end
       if enrollments
-        json[:enrollments] = enrollments.map { |e| enrollment_json(e, current_user, session, includes) }
+        json[:enrollments] = enrollments.map do |enrollment|
+          enrollment_json(enrollment, current_user, session, includes, enrollment_json_opts)
+        end
       end
       # include a permissions check here to only allow teachers and admins
       # to see user email addresses.
@@ -95,10 +99,7 @@ module Api::V1::User
       # been called with {group_memberships: true} in opts
       if includes.include?('group_ids')
         context_group_ids = get_context_groups(context)
-        user_group_ids = user.group_memberships.loaded ?
-          user.group_memberships.map(&:group_id) :
-          user.group_memberships.pluck(:group_id)
-        json[:group_ids] = context_group_ids & user_group_ids
+        json[:group_ids] = context_group_ids & group_ids(user)
       end
 
       json[:locale] = user.locale if includes.include?('locale')
@@ -228,10 +229,13 @@ module Api::V1::User
         json[:grades] = grades_hash(enrollment, user, opts[:grading_period])
       end
       if user_can_read_sis_data?(@current_user, enrollment.course)
+        json[:sis_account_id] = enrollment.course.account.sis_source_id
         json[:sis_course_id] = enrollment.course.sis_source_id
         json[:course_integration_id] = enrollment.course.integration_id
         json[:sis_section_id] = enrollment.course_section.sis_source_id
         json[:section_integration_id] = enrollment.course_section.integration_id
+        pseudonym = opts.key?(:sis_pseudonym) ? opts[:sis_pseudonym] : sis_pseudonym_for(enrollment.user)
+        json[:sis_user_id] = pseudonym.try(:sis_user_id)
       end
       json[:html_url] = course_user_url(enrollment.course_id, enrollment.user_id)
       user_includes = includes.include?('avatar_url') ? ['avatar_url'] : []
@@ -313,5 +317,17 @@ module Api::V1::User
 
   def user_can_read_sis_data?(user, context)
     sis_id_context(context).grants_right?(user, :read_sis) || @domain_root_account.grants_right?(user, :manage_sis)
+  end
+
+  def sis_pseudonym_for(user)
+    SisPseudonym.for(user, @domain_root_account, @domain_root_account.trust_exists?)
+  end
+
+  def group_ids(user)
+    if user.group_memberships.loaded?
+      user.group_memberships.map(&:group_id)
+    else
+      user.group_memberships.pluck(:group_id)
+    end
   end
 end

@@ -16,7 +16,7 @@
 # with this program. If not, see <http://www.gnu.org/licenses/>.
 #
 
-require 'aws-sdk'
+require 'aws-sdk-v1'
 
 class ConfigurationMissingError < StandardError; end
 
@@ -68,7 +68,7 @@ class NotificationFailureProcessor
     is_disabled_endpoint = error_message.include? "EndpointDisabled"
     error_context = summary['error_context']
 
-    if Message.exists?(global_id)
+    if Message.where(id: global_id).exists?
       message = Message.find(global_id)
 
       message.set_transmission_error

@@ -5,6 +5,9 @@ define [
   'compiled/collections/AssignmentCollection'
 ], (Backbone, _, DefaultUrlMixin, AssignmentCollection) ->
 
+  isAdmin = ->
+    _.contains(ENV.current_user_roles, 'admin')
+
   class AssignmentGroup extends Backbone.Model
     @mixin DefaultUrlMixin
     resourceName: 'assignment_groups'
@@ -55,6 +58,13 @@ define [
       return [] unless assignments?
       assignments.pluck('id')
 
+    canDelete: ->
+      return true if isAdmin()
+      not @anyAssignmentInClosedGradingPeriod() and not @hasFrozenAssignments()
+
     hasFrozenAssignments: ->
       @get('assignments').any (m) ->
         m.get('frozen')
+
+    anyAssignmentInClosedGradingPeriod: ->
+      @get('any_assignment_in_closed_grading_period')

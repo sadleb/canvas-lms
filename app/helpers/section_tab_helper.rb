@@ -170,7 +170,7 @@ module SectionTabHelper
     def cache_key
       [ context, current_user, domain_root_account,
         Lti::NavigationCache.new(domain_root_account),
-        "section_tabs_hash", I18n.locale, domain_root_account.feature_enabled?(:use_new_styles)
+        "section_tabs_hash", I18n.locale
       ].cache_key
     end
 
@@ -205,9 +205,8 @@ module SectionTabHelper
     def a_attributes
       { href: @tab.path,
         class: a_classes }.tap do |h|
-        if @tab.screenreader?
-          h[:'aria-label'] = @tab.screenreader
-        end
+        h[:'aria-label'] = @tab.screenreader if @tab.screenreader?
+        h[:target] = @tab.target if @tab.target?
       end
     end
 

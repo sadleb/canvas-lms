@@ -104,6 +104,34 @@ describe UsersController, type: :request do
             {"type" => "Message", "count" => 2, "unread_count" => 0, "notification_category" => "TestImmediately"} # check a broadcast-policy-based one
           ]
     end
+
+    it "should find cross-shard submission comments" do
+      @student = user(:active_all => true)
+      course(:active_all => true)
+      @course.enroll_student(@student).accept!
+      @assignment = @course.assignments.create!(:title => 'assignment 1', :description => 'hai', :points_possible => '14.2', :submission_types => 'online_text_entry')
+      @shard1.activate do
+        @teacher = user(:active_all => true)
+      end
+      @course.enroll_teacher(@teacher).accept!
+      @sub = @assignment.grade_student(@student, grade: nil, grader: @teacher).first
+      @sub.workflow_state = 'submitted'
+      @sub.submission_comments.create!(:comment => 'c1', :author => @teacher, :recipient_id => @student.id)
+      @sub.submission_comments.create!(:comment => 'c2', :author => @student, :recipient_id => @teacher.id)
+      @sub.save!
+
+      json = api_call(:get, "/api/v1/users/self/activity_stream?asset_type=Submission",
+        { :controller => "users", :action => "activity_stream", :format => 'json', :asset_type => "Submission" })
+
+      expect(json.count).to eq 1
+      expect(json.first["submission_comments"].count).to eq 2
+
+      json = api_call(:get, "/api/v1/users/self/activity_stream?asset_type=Submission&submission_user_id=#{@student.id}",
+        { :controller => "users", :action => "activity_stream", :format => 'json', :asset_type => "Submission", :submission_user_id => @student.id.to_s })
+
+      expect(json.count).to eq 1
+      expect(json.first["submission_comments"].count).to eq 2
+    end
   end
 
   it "should still return notification_category in the the activity stream summary if not set (yet)" do
@@ -311,6 +339,7 @@ describe UsersController, type: :request do
   it "should format graded Submission with comments" do
     #set @domain_root_account
     @domain_root_account = Account.default
+    @domain_root_account.update_attributes(:default_time_zone => 'America/Denver')
 
     @assignment = @course.assignments.create!(:title => 'assignment 1', :description => 'hai', :points_possible => '14.2', :submission_types => 'online_text_entry')
     @teacher = User.create!(:name => 'teacher')
@@ -401,11 +430,13 @@ describe UsersController, type: :request do
         'default_view' => 'feed',
         'workflow_state' => 'available',
         'public_syllabus' => false,
+        'public_syllabus_to_auth' => false,
         'is_public' => @course.is_public,
         'is_public_to_auth_users' => @course.is_public_to_auth_users,
         'storage_quota_mb' => @course.storage_quota_mb,
         'apply_assignment_group_weights' => false,
-        'restrict_enrollments_to_course_dates' => false
+        'restrict_enrollments_to_course_dates' => false,
+        'time_zone' => 'America/Denver'
       },
 
       'user' => {
@@ -420,11 +451,12 @@ describe UsersController, type: :request do
   it "should format ungraded Submission with comments" do
     #set @domain_root_account
     @domain_root_account = Account.default
+    @domain_root_account.update_attributes(:default_time_zone => 'America/Denver')
 
     @assignment = @course.assignments.create!(:title => 'assignment 1', :description => 'hai', :points_possible => '14.2', :submission_types => 'online_text_entry')
     @teacher = User.create!(:name => 'teacher')
     @course.enroll_teacher(@teacher)
-    @sub = @assignment.grade_student(@user, { :grade => nil }).first
+    @sub = @assignment.grade_student(@user, grade: nil, grader: @teacher).first
     @sub.workflow_state = 'submitted'
     @sub.submission_comments.create!(:comment => 'c1', :author => @teacher, :recipient_id => @user.id)
     @sub.submission_comments.create!(:comment => 'c2', :author => @user, :recipient_id => @teacher.id)
@@ -448,7 +480,7 @@ describe UsersController, type: :request do
       'updated_at' => StreamItem.last.updated_at.as_json,
       'grade' => nil,
       'excused' => nil,
-      'grader_id' => nil,
+      'grader_id' => @teacher.id,
       'graded_at' => nil,
       'score' => nil,
       'html_url' => "http://www.example.com/courses/#{@course.id}/assignments/#{@assignment.id}/submissions/#{@user.id}",
@@ -510,11 +542,13 @@ describe UsersController, type: :request do
         'default_view' => 'feed',
         'workflow_state' => 'available',
         'public_syllabus' => false,
+        'public_syllabus_to_auth' => false,
         'is_public' => @course.is_public,
         'is_public_to_auth_users' => @course.is_public_to_auth_users,
         'storage_quota_mb' => @course.storage_quota_mb,
         'apply_assignment_group_weights' => false,
-        'restrict_enrollments_to_course_dates' => false
+        'restrict_enrollments_to_course_dates' => false,
+        'time_zone' => 'America/Denver'
       },
 
       'user' => {
@@ -530,7 +564,7 @@ describe UsersController, type: :request do
     @assignment = @course.assignments.create!(:title => 'assignment 1', :description => 'hai', :points_possible => '14.2', :submission_types => 'online_text_entry')
     @teacher = User.create!(:name => 'teacher')
     @course.enroll_teacher(@teacher)
-    @sub = @assignment.grade_student(@user, { :grade => '12' }).first
+    @sub = @assignment.grade_student(@user, grade: '12', grader: @teacher).first
     @sub.workflow_state = 'submitted'
     @sub.save!
     json = api_call(:get, "/api/v1/users/activity_stream.json",
@@ -546,7 +580,7 @@ describe UsersController, type: :request do
     @assignment = @course.assignments.create!(:title => 'assignment 1', :description => 'hai', :points_possible => '14.2', :submission_types => 'online_text_entry')
     @teacher = User.create!(:name => 'teacher')
     @course.enroll_teacher(@teacher)
-    @sub = @assignment.grade_student(@user, { :grade => nil }).first
+    @sub = @assignment.grade_student(@user, grade: nil, grader: @teacher).first
     @sub.workflow_state = 'submitted'
     @sub.save!
     json = api_call(:get, "/api/v1/users/activity_stream.json",

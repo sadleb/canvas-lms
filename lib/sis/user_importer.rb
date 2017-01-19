@@ -140,8 +140,16 @@ module SIS
             if !status_is_active && !user.new_record?
               # if this user is deleted, we're just going to make sure the user isn't enrolled in anything in this root account and
               # delete the pseudonym.
-              d = @root_account.enrollments.active.where(user_id: user).update_all(workflow_state: 'deleted')
-              d += @root_account.all_group_memberships.active.where(user_id: user).update_all(workflow_state: 'deleted')
+              enrollment_ids = @root_account.enrollments.active.where(user_id: user).where.not(:workflow_state => 'deleted').pluck(:id)
+              if enrollment_ids.any?
+                Enrollment.where(id: enrollment_ids).update_all(updated_at: Time.now.utc, workflow_state: 'deleted')
+                EnrollmentState.where(enrollment_id: enrollment_ids).update_all(state: 'deleted', state_is_current: true)
+              end
+
+              d = enrollment_ids.count
+              d += @root_account.all_group_memberships.active.where(user_id: user).update_all(updated_at: Time.now.utc, workflow_state: 'deleted')
+              d += user.account_users.shard(@root_account).where(account_id: @root_account.all_accounts).delete_all
+              d += user.account_users.shard(@root_account).where(account_id: @root_account).delete_all
               if 0 < d
                 should_update_account_associations = true
               end
@@ -194,24 +202,24 @@ module SIS
               User.transaction(:requires_new => true) do
                 if user.changed?
                   user_touched = true
-                  raise ImportError, user.errors.first.join(" ") if !user.save && user.errors.size > 0
+                  if !user.save && user.errors.size > 0
+                    add_user_warning(user.errors.first.join(" "), user_id, login_id)
+                    raise ImportError, user.errors.first.join(" ")
+                  end
                 elsif @batch
                   @users_to_set_sis_batch_ids << user.id
                 end
                 pseudo.user_id = user.id
                 if pseudo.changed?
                   pseudo.sis_batch_id = @batch.id if @batch
-                  raise ImportError, pseudo.errors.first.join(" ") if !pseudo.save_without_broadcasting && pseudo.errors.size > 0
+                  if !pseudo.save_without_broadcasting && pseudo.errors.size > 0
+                    add_user_warning(pseudo.errors.first.join(" "), user_id, login_id)
+                    raise ImportError, pseudo.errors.first.join(" ")
+                  end
                 end
               end
             rescue => e
-              user_message = generate_readable_error_message(
-                message: e.message,
-                user_id: user_id,
-                login_id: login_id
-              )
-              developer_message = "Internal error: #{e.inspect}"
-              @messages << "#{user_message} (#{developer_message})"
+              Canvas::Errors.capture_exception(:sis_import, e)
               next
             end
 
@@ -304,6 +312,15 @@ module SIS
       end
 
       private
+
+      def add_user_warning(message, user_id, login_id)
+        user_message = generate_readable_error_message(
+          message: message,
+          user_id: user_id,
+          login_id: login_id
+        )
+        @messages << user_message
+      end
 
       ERRORS_TO_REASONS = {
         'unique_id is invalid' => "Invalid login_id: '%{login_id}'",

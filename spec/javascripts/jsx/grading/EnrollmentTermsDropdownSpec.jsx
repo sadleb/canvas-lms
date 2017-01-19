@@ -1,10 +1,11 @@
 define([
   'react',
+  'react-dom',
+  'react-addons-test-utils',
   'underscore',
   'jsx/grading/EnrollmentTermsDropdown'
-], (React, _, Dropdown) => {
+], (React, ReactDOM, {Simulate}, _, Dropdown) => {
   const wrapper = document.getElementById('fixtures');
-  const Simulate = React.addons.TestUtils.Simulate;
 
   module('EnrollmentTermsDropdown', {
     renderComponent() {
@@ -13,7 +14,7 @@ define([
         changeSelectedEnrollmentTerm: this.spy()
       };
       const element = React.createElement(Dropdown, props);
-      return React.render(element, wrapper);
+      return ReactDOM.render(element, wrapper);
     },
 
     terms() {
@@ -58,27 +59,27 @@ define([
     },
 
     teardown() {
-      React.unmountComponentAtNode(wrapper);
+      ReactDOM.unmountComponentAtNode(wrapper);
     }
   });
 
   test('includes an option for each term plus an option for "all terms"', function () {
     let dropdown = this.renderComponent();
     const expectedOptionsCount = this.terms().length + 1;
-    let node = React.findDOMNode(dropdown.refs.termsDropdown);
+    let node = ReactDOM.findDOMNode(dropdown.refs.termsDropdown);
     equal(node.length, expectedOptionsCount);
   });
 
   test('starts by showing all enrollment terms', function () {
     let dropdown = this.renderComponent();
-    let node = React.findDOMNode(dropdown.refs.termsDropdown);
+    let node = ReactDOM.findDOMNode(dropdown.refs.termsDropdown);
     const ALL_TERMS_ID = "0";
     equal(node.value, ALL_TERMS_ID);
   });
 
   test("calls changeSelectedEnrollmentTerm when a selection is made", function() {
     let dropdown = this.renderComponent();
-    let node = React.findDOMNode(dropdown.refs.termsDropdown);
+    let node = ReactDOM.findDOMNode(dropdown.refs.termsDropdown);
     node.value = "3";
     Simulate.change(node);
     ok(dropdown.props.changeSelectedEnrollmentTerm.calledOnce);
@@ -86,7 +87,7 @@ define([
 
   test("displays the terms in descending order by start date then created date if start date doesn't exist", function() {
     let dropdown = this.renderComponent();
-    let node = React.findDOMNode(dropdown.refs.termsDropdown);
+    let node = ReactDOM.findDOMNode(dropdown.refs.termsDropdown);
     let optionIDs = _.pluck(node.getElementsByTagName("OPTION"), "value");
     propEqual(optionIDs, ["0", "21", "18", "7", "2"]);
   });

@@ -26,7 +26,8 @@ describe GradebookExporter do
   end
 
   describe "#to_csv" do
-    let(:course)    { @course }
+    let(:course) { @course }
+    let(:teacher) { @teacher }
 
     def exporter(opts = {})
       GradebookExporter.new(course, @teacher, opts)
@@ -80,15 +81,15 @@ describe GradebookExporter do
 
         student_in_course active_all: true
 
-        @no_due_date_assignment.grade_student @student, grade: 1
-        @past_assignment.grade_student @student, grade: 2
-        @current_assignment.grade_student @student, grade: 3
-        @future_assignment.grade_student @student, grade: 4
+        @no_due_date_assignment.grade_student @student, grade: 1, grader: @teacher
+        @past_assignment.grade_student @student, grade: 2, grader: @teacher
+        @current_assignment.grade_student @student, grade: 3, grader: @teacher
+        @future_assignment.grade_student @student, grade: 4, grader: @teacher
       end
 
       let(:assignments) { course.assignments }
 
-      let!(:group) { Factories::GradingPeriodGroupHelper.new.create_for_course(course) }
+      let!(:group) { Factories::GradingPeriodGroupHelper.new.legacy_create_for_course(course) }
 
       let!(:first_period) do
         args = {
@@ -188,11 +189,20 @@ describe GradebookExporter do
       student2_enrollment = student_in_course(course: @course, active_all: true)
       student2 = student2_enrollment.user
 
-      assmt.grade_student(student1, grade: 1)
-      assmt.grade_student(student2, grade: 2)
+      assmt.grade_student(student1, grade: 1, grader: @teacher)
+      assmt.grade_student(student2, grade: 2, grader: @teacher)
 
       student1_enrollment.deactivate
       student2_enrollment.deactivate
+
+      teacher.preferences[:gradebook_settings] =
+      { course.id =>
+        {
+          'show_inactive_enrollments' => 'true',
+          'show_concluded_enrollments' => 'false'
+        }
+      }
+      teacher.save!
 
       csv = exporter.to_csv
       rows = CSV.parse(csv, headers: true)
@@ -219,7 +229,7 @@ describe GradebookExporter do
     let(:assignment) { course.assignments.create!(title: "Assignment", points_possible: 4) }
 
     it "quotes the name that starts with an equals so it's not considered a formula" do
-      assignment.grade_student(student, grade: 1)
+      assignment.grade_student(student, grade: 1, grader: @teacher)
       csv = GradebookExporter.new(course, @teacher, {}).to_csv
       rows = CSV.parse(csv, headers: true)
 

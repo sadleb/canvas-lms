@@ -3,13 +3,13 @@ define [
   'jquery'
   'underscore'
   'react'
+  'react-dom'
   'jsx/files/BreadcrumbCollapsedContainer'
-  'compiled/react/shared/utils/withReactElement'
   '../modules/customPropTypes'
-], (I18n, $, _, React, BreadcrumbCollapsedContainerComponent, withReactElement, customPropTypes) ->
+], (I18n, $, _, React, ReactDOM, BreadcrumbCollapsedContainerComponent, customPropTypes) ->
 
   MAX_CRUMB_WIDTH = 500
-  MIN_CRUMB_WIDTH = if window.ENV.use_new_styles then 80 else 40
+  MIN_CRUMB_WIDTH = 80
 
   BreadcrumbCollapsedContainer =   BreadcrumbCollapsedContainerComponent
 
@@ -47,10 +47,8 @@ define [
       $a = $oldCrumbs.find('li').eq(1).find('a')
       contextUrl = $a.attr('href')
       contextName = $a.text()
-      if (ENV.use_new_styles)
-        $('.ic-app-nav-toggle-and-crumbs').remove()
-      else
-        $oldCrumbs.remove()
+      $('.ic-app-nav-toggle-and-crumbs').remove()
+
       @setState({homeName, contextUrl, contextName, heightOfOneBreadcrumb})
 
     handleResize: ->
@@ -66,7 +64,7 @@ define [
 
     checkIfCrumbsFit: ->
       return unless @state.heightOfOneBreadcrumb
-      breadcrumbHeight = $(@refs.breadcrumbs.getDOMNode()).height()
+      breadcrumbHeight = $(ReactDOM.findDOMNode(@refs.breadcrumbs)).height()
       if (breadcrumbHeight > @state.heightOfOneBreadcrumb) and (@state.maxCrumbWidth > MIN_CRUMB_WIDTH)
         maxCrumbWidth = Math.max(MIN_CRUMB_WIDTH, @state.maxCrumbWidth - 20)
         @setState({maxCrumbWidth}, @checkIfCrumbsFit)

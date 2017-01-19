@@ -95,9 +95,9 @@ class SectionsController < ApplicationController
   #     available if you have permission to view users or grades in the course
   #   - "avatar_url": Include the avatar URLs for students returned.
   #   - "enrollments": If 'students' is also included, return the section
-  #      enrollment for each student
+  #     enrollment for each student
   #   - "total_students": Returns the total amount of active and invited students
-  #      for the course section
+  #     for the course section
   #   - "passback_status": Include the grade passback status.
   #
   # @returns [Section]
@@ -109,8 +109,9 @@ class SectionsController < ApplicationController
 
       includes = Array(params[:include])
 
-      render :json => sections_json(@context.active_course_sections,
-                                    @current_user, session, includes)
+      sections = Api.paginate(@context.active_course_sections.order(CourseSection.best_unicode_collation_key('name')), self, api_v1_course_sections_url)
+
+      render :json => sections_json(sections, @current_user, session, includes)
     end
   end
 
@@ -277,6 +278,16 @@ class SectionsController < ApplicationController
   # @API Get section information
   # Gets details about a specific section
   #
+  # @argument include[] [String, "students"|"avatar_url"|"enrollments"|"total_students"|"passback_status"]
+  #   - "students": Associations to include with the group. Note: this is only
+  #     available if you have permission to view users or grades in the course
+  #   - "avatar_url": Include the avatar URLs for students returned.
+  #   - "enrollments": If 'students' is also included, return the section
+  #     enrollment for each student
+  #   - "total_students": Returns the total amount of active and invited students
+  #     for the course section
+  #   - "passback_status": Include the grade passback status.
+  #
   # @returns Section
   def show
     if authorized_action(@section, @current_user, :read)
@@ -287,13 +298,15 @@ class SectionsController < ApplicationController
           @completed_enrollments_count = @section.enrollments.not_fake.where(:workflow_state => 'completed').count
           @pending_enrollments_count = @section.enrollments.not_fake.where(:workflow_state => %w{invited pending}).count
           @student_enrollments_count = @section.enrollments.not_fake.where(:type => 'StudentEnrollment').count
+          can_manage_students = @context.grants_right?(@current_user, session, :manage_students) || @context.grants_right?(@current_user, session, :manage_admin_users)
           js_env(
+            :STUDENT_CONTEXT_CARDS_ENABLED => can_manage_students && @domain_root_account.feature_enabled?(:student_context_cards),
             :PERMISSIONS => {
-              :manage_students => @context.grants_right?(@current_user, session, :manage_students) || @context.grants_right?(@current_user, session, :manage_admin_users),
+              :manage_students => can_manage_students,
               :manage_account_settings => @context.account.grants_right?(@current_user, session, :manage_account_settings)
             })
         end
-        format.json { render :json => section_json(@section, @current_user, session, []) }
+        format.json { render :json => section_json(@section, @current_user, session, Array(params[:include])) }
       end
     end
   end
@@ -305,7 +318,7 @@ class SectionsController < ApplicationController
   def destroy
     if authorized_action(@section, @current_user, :delete)
       respond_to do |format|
-        if @section.enrollments.not_fake.empty?
+        if @section.deletable?
           @section.destroy
           @context.touch
           flash[:notice] = t('section_deleted', "Course section successfully deleted!")

@@ -10,6 +10,21 @@
 
 .context_module_item {
   border: none !important;
+
+  &.context_module_item_conditional_info {
+    .type_icon i {
+      display: inline;
+    }
+
+    .conditional_options_count {
+      background: #1897D8;
+      float: right;
+      padding: 2px 15px;
+      border-radius: 12px;
+      font-size: 11px;
+      color: #fff;
+    }
+  }
 }
 
 .al-options a {
@@ -143,7 +158,7 @@
   background-color: transparent;
   border-bottom: none;
   padding: auto;
-  color: #3d454c;
+  color: $ic-font-color-dark;
 }
 .sortable-handle a, .draggable-handle a {
   color: #b4b7ba;
@@ -179,12 +194,6 @@
 
 .context_module_item .type_icon i {
   color: inherit;
-}
-
-.context_module_item .item_name .title {
-  padding: 0;
-  color: inherit;
-  @include fontSize(13px);
 }
 
 .context_module_placeholder {

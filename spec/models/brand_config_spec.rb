@@ -18,6 +18,7 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../spec_helper.rb')
+require 'db/migrate/20150709205405_create_k12_theme.rb'
 
 describe BrandConfig do
   it "should create an instance with a parent_md5" do
@@ -27,7 +28,6 @@ describe BrandConfig do
 
   def setup_subaccount_with_config
     @parent_account = Account.default
-    @parent_account.enable_feature!(:use_new_styles)
     @parent_config = BrandConfig.create(variables: {"ic-brand-primary" => "#321"})
 
     @subaccount = Account.create!(:parent_account => @parent_account)
@@ -102,7 +102,7 @@ describe BrandConfig do
     end
 
     it "includes default variables not found in brand config" do
-      expect(@brand_variables["ic-link-color"]).to eq '#0081bd'
+      expect(@brand_variables["ic-link-color"]).to eq '#008EE2'
     end
   end
 
@@ -158,5 +158,20 @@ describe BrandConfig do
         @subaccount_bc.save_all_files!
       end
     end
+  end
+
+  it "doesn't let you update an existing brand config" do
+    bc = BrandConfig.create(variables: {"ic-brand-primary" => "#321"})
+    bc.variables = { "ic-brand-primary" => "#123" }
+    expect { bc.save! }.to raise_error(/md5 digest/)
+  end
+
+  it "returns a default config" do
+    expect(BrandConfig.default).to be_present
+  end
+
+  it "returns a k12 config" do
+    CreateK12Theme.new.up
+    expect(BrandConfig.k12_config).to be_present
   end
 end

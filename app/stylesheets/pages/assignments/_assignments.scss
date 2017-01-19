@@ -16,10 +16,6 @@
   }
 }
 
-#edit_assignment_wrapper {
-  padding: 1em;
-}
-
 #point_change_warning {
   margin-top: 15px;
   margin-bottom: 0px;
@@ -56,7 +52,7 @@
 #assignment_turnitin_settings {
   min-width: 400px;
   label {
-    width: 100%;
+    width: 95%;
   }
   .js-exclude-small-matches-options {
     margin-left: 21px;
@@ -110,28 +106,6 @@
   .form-horizontal.display-only .control-group {
     margin-bottom: 0;
   }
-  .assignment_dates {
-    @if $use_new_styles == false {
-      border-collapse: collapse;
-      width: 100%;
-      margin-bottom: 1em;
-      thead {
-        background-color: transparent;
-      }
-      tr {
-        th {
-          font-weight: bold;
-          @include fontSize($ic-font-size--small);
-          padding: 0.5em;
-        }
-        td {
-          border-top: 1px solid #BBB;
-          border-bottom: 1px solid #BBB;
-          padding: 0.5em;
-        }
-      }
-    }
-  }
   .description.student-version {
     min-height: 260px;
   }
@@ -152,6 +126,19 @@
       padding-top: 5px;
     }
   }
+}
+
+.control-group {
+  .controls-url {
+    padding-top: 5px;
+    word-wrap: break-word;
+  }
+}
+
+.omit-from-final-warning {
+  padding: 12px;
+  border-width: 1px;
+  margin: 5px;
 }
 
 #assignment-draft-state {

@@ -20,7 +20,7 @@ module CC
     class QTIGenerator
       include CC::CCHelper
       include QTIItems
-      delegate :add_error, :export_object?, :to => :@manifest
+      delegate :add_error, :export_object?, :add_exported_asset, :create_key, :to => :@manifest
 
       def initialize(manifest, resources_node, html_exporter)
         @manifest = manifest
@@ -82,6 +82,8 @@ module CC
       end
 
       def generate_quiz(quiz, for_cc=true)
+        add_exported_asset(quiz)
+
         cc_qti_migration_id = create_key(quiz)
         resource_dir = File.join(@export_dir, cc_qti_migration_id)
         FileUtils::mkdir_p resource_dir
@@ -151,6 +153,8 @@ module CC
       end
 
       def generate_question_bank(bank)
+        add_exported_asset(bank)
+
         bank_mig_id = create_key(bank)
 
         rel_path = File.join(ASSESSMENT_NON_CC_FOLDER, bank_mig_id + QTI_EXTENSION)
@@ -204,9 +208,10 @@ module CC
           q_node.available quiz.available?
           q_node.one_time_results quiz.one_time_results?
           q_node.show_correct_answers_last_attempt quiz.show_correct_answers_last_attempt?
-          q_node.module_locked quiz.locked_by_module_item?(@user, true).present?
+          q_node.only_visible_to_overrides quiz.only_visible_to_overrides?
+          q_node.module_locked quiz.locked_by_module_item?(@user, deep_check_if_needed: true).present?
           if quiz.assignment && !quiz.assignment.deleted?
-            assignment_migration_id = CCHelper.create_key(quiz.assignment)
+            assignment_migration_id = create_key(quiz.assignment)
             doc.assignment(:identifier=>assignment_migration_id) do |a|
               AssignmentResources.create_canvas_assignment(a, quiz.assignment, @manifest)
             end
@@ -214,6 +219,16 @@ module CC
           if quiz.assignment_group_id
             ag = @course.assignment_groups.find(quiz.assignment_group_id)
             q_node.assignment_group_identifierref create_key(ag)
+          end
+          q_node.assignment_overrides do |ao_node|
+            quiz.assignment_overrides.active.where(set_type: 'Noop').each do |o|
+              override_attrs = o.slice(:set_type, :set_id, :title)
+              AssignmentOverride.overridden_dates.each do |field|
+                next unless o.send("#{field}_overridden")
+                override_attrs[field] = o[field]
+              end
+              ao_node.override(override_attrs)
+            end
           end
         end
       end

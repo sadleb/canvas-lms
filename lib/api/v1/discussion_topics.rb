@@ -64,11 +64,12 @@ module Api::V1::DiscussionTopics
   def discussion_topic_api_json(topic, context, user, session, opts = {})
     opts.reverse_merge!(
       include_assignment: true,
+      include_all_dates: false,
       override_dates: true
     )
 
     opts[:user_can_moderate] = context.grants_right?(user, session, :moderate_forum) if opts[:user_can_moderate].nil?
-    json = api_json(topic, user, session, { only: ALLOWED_TOPIC_FIELDS, methods: ALLOWED_TOPIC_METHODS }, [:attach, :update, :delete])
+    json = api_json(topic, user, session, { only: ALLOWED_TOPIC_FIELDS, methods: ALLOWED_TOPIC_METHODS }, [:attach, :update, :reply, :delete])
     json.merge!(serialize_additional_topic_fields(topic, context, user, opts))
 
     if hold = topic.subscription_hold(user, @context_enrollment, session)
@@ -79,6 +80,7 @@ module Api::V1::DiscussionTopics
       excludes = opts[:exclude_assignment_description] ? ['description'] : []
       json[:assignment] = assignment_json(topic.assignment, user, session,
         include_discussion_topic: false, override_dates: opts[:override_dates],
+        include_all_dates: opts[:include_all_dates],
         exclude_response_fields: excludes)
     end
 
@@ -109,10 +111,11 @@ module Api::V1::DiscussionTopics
       subscribed: topic.subscribed?(user), topic_children: topic.child_topics.pluck(:id),
       attachments: attachments, published: topic.published?,
       can_unpublish: opts[:user_can_moderate] ? topic.can_unpublish?(opts) : false,
-      locked: topic.locked?, can_lock: topic.can_lock?,
+      locked: topic.locked?, can_lock: topic.can_lock?, comments_disabled: topic.comments_disabled?,
       author: user_display_json(topic.user, topic.context),
       html_url: html_url, url: html_url, pinned: !!topic.pinned,
       group_category_id: topic.group_category_id, can_group: topic.can_group?(opts) }
+    fields.merge!({context_code: topic.context_code}) if opts[:include_context_code]
 
     locked_json(fields, topic, user, 'topic', check_policies: true, deep_check_if_needed: true)
     can_view = !fields[:lock_info].is_a?(Hash) || fields[:lock_info][:can_view]

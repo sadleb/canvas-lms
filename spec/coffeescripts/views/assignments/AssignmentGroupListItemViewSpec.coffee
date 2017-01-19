@@ -103,6 +103,7 @@ define [
     view = new AssignmentGroupListItemView
       model: model
       course: new Backbone.Model(id: 1)
+      userIsAdmin: options.userIsAdmin
     view.$el.appendTo $('#fixtures')
     view.render()
 
@@ -122,9 +123,11 @@ define [
     assignmentGroupsView.render()
     assignmentGroupsView
 
-  module 'AssignmentGroupListItemView',
+  module 'AssignmentGroupListItemView as a teacher',
     setup: ->
-      fakeENV.setup()
+      fakeENV.setup({
+        current_user_roles: ['teacher']
+      })
       @model = createAssignmentGroup()
       $(document).off()
       elementToggler.bind()
@@ -171,6 +174,12 @@ define [
     ok view.editGroupView
     ok view.createAssignmentView
     ok view.deleteGroupView
+
+  test "initializes editGroupView with userIsAdmin property", ->
+    view = createView(@model, userIsAdmin: true)
+    ok view.editGroupView.userIsAdmin
+    view = createView(@model, userIsAdmin: false)
+    notOk view.editGroupView.userIsAdmin
 
   test "initializes no child views if can't manage", ->
     view = createView(@model, canManage: false)
@@ -240,11 +249,39 @@ define [
     view = createView(@model)
     deepEqual view.cacheKey(), ["course", 1, "user", 1, "ag", 1, "expanded"]
 
-  test "not allow group to be deleted with frozen assignments", ->
+  test "disallows deleting groups with frozen assignments", ->
     assignments = @model.get('assignments')
     assignments.first().set('frozen', true)
     view = createView(@model)
-    ok !view.$("#assignment_group_#{@model.id} a.delete_group").length
+    ok view.$("#assignment_group_#{@model.id} a.delete_group.disabled").length
+
+  test "disallows deleting groups with assignments due in closed grading periods", ->
+    @model.set('any_assignment_in_closed_grading_period', true)
+    assignments = @model.get('assignments')
+    assignments.first().set('frozen', false)
+    view = createView(@model)
+    ok view.$("#assignment_group_#{@model.id} a.delete_group.disabled").length
+
+  test "allows deleting non-frozen groups without assignments due in closed grading periods", ->
+    @model.set('any_assignment_in_closed_grading_period', false)
+    view = createView(@model)
+    ok view.$("#assignment_group_#{@model.id} a.delete_group:not(.disabled)").length
+
+  test "allows deleting frozen groups for admins", ->
+    assignments = @model.get('assignments')
+    assignments.first().set('frozen', true)
+    view = createView(@model, userIsAdmin: true)
+    ok view.$("#assignment_group_#{@model.id} a.delete_group:not(.disabled)").length
+
+  test "allows deleting groups with assignments due in closed grading periods for admins", ->
+    @model.set('any_assignment_in_closed_grading_period', true)
+    view = createView(@model, userIsAdmin: true)
+    ok view.$("#assignment_group_#{@model.id} a.delete_group:not(.disabled)").length
+
+  test 'does not provide a view to delete a group with assignments due in a closed grading period', ->
+    @model.set('any_assignment_in_closed_grading_period', true)
+    view = createView(@model)
+    ok !view.deleteGroupView
 
   test "correctly displays rules tooltip", ->
     model = createAssignmentGroup(group3())
@@ -252,3 +289,28 @@ define [
     anchor = view.$("#assignment_group_3 .ag-header-controls .tooltip_link")
     equal anchor.text(), "2 Rules"
     equal anchor.attr("title"), "Drop the lowest score and Drop the highest score"
+
+  module 'AssignmentGroupListItemView as an admin',
+    setup: ->
+      @model = createAssignmentGroup()
+      $(document).off()
+      elementToggler.bind()
+
+    teardown: ->
+      $("form.dialogFormView").remove()
+      $('#fixtures').empty()
+      fakeENV.teardown()
+
+  test 'provides a view to delete a group when canDelete is true', ->
+    @stub @model, 'canDelete', -> true
+    @model.set('any_assignment_in_closed_grading_period', true)
+    view = createView(@model, userIsAdmin: true)
+    ok view.deleteGroupView
+    notOk view.$("#assignment_group_#{@model.id} a.delete_group.disabled").length
+
+  test 'provides a view to delete a group when canDelete is false', ->
+    @stub @model, 'canDelete', -> false
+    @model.set('any_assignment_in_closed_grading_period', true)
+    view = createView(@model, userIsAdmin: true)
+    ok view.deleteGroupView
+    notOk view.$("#assignment_group_#{@model.id} a.delete_group.disabled").length

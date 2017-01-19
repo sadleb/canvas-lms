@@ -139,6 +139,17 @@ describe SubmissionsController do
       expect(assigns[:submission].url).to eql("http://www.google.com")
     end
 
+    it 'must accept a basic_lti_launch url when any online submission type is allowed' do
+      course_with_student_logged_in(:active_all => true)
+      @assignment = @course.assignments.create!(:title => 'some assignment', :submission_types => 'online_url')
+      request.path = "/api/v1/courses/#{@course.id}/assignments/#{@assignment.id}/submissions"
+      post 'create', :course_id => @course.id, :assignment_id => @assignment.id, :submission => {:submission_type => 'basic_lti_launch', :url => 'http://www.google.com'}
+      expect(response).to be_redirect
+      expect(assigns[:submission]).not_to be_nil
+      expect(assigns[:submission].submission_type).to eq 'basic_lti_launch'
+      expect(assigns[:submission].url).to eq 'http://www.google.com'
+    end
+
     it "should redirect to the assignment when locked in submit-at-deadline situation" do
       enable_cache do
         now = Time.now.utc
@@ -151,7 +162,7 @@ describe SubmissionsController do
           )
 
           # cache permission as true (for 5 minutes)
-          expect(@assignment.grants_right?(@student, :submit)).to be_truthy
+          expect(@assignment.grants_right?(@student, {}, :submit)).to be_truthy
         end
 
         # travel past due date (which resets the Assignment#locked_for? cache)
@@ -405,6 +416,47 @@ describe SubmissionsController do
       expect(assigns[:submission].submission_comments[0].attachments.map{|a| a.display_name}).to be_include("txt.txt")
     end
 
+    describe 'allows a teacher to add draft comments to a submission' do
+      before(:each) do
+        course_with_teacher(active_all: true)
+        student_in_course
+        assignment = @course.assignments.create!(title: 'Assignment #1', submission_types: 'online_url,online_upload')
+
+        user_session(@teacher)
+        @test_params = {
+          course_id: @course.id,
+          assignment_id: assignment.id,
+          id: @student.id,
+          submission: {
+            comment: 'Comment #1',
+          }
+        }
+      end
+
+      it 'when draft_comment is true' do
+        test_params = @test_params
+        test_params[:submission][:draft_comment] = true
+
+        expect { put 'update', test_params }.to change { SubmissionComment.draft.count }.by(1)
+      end
+
+      it 'except when draft_comment is nil' do
+        test_params = @test_params
+        test_params[:submission].delete(:draft_comment)
+
+        expect { put 'update', test_params }.to change { SubmissionComment.count }.by(1)
+        expect { put 'update', test_params }.not_to change { SubmissionComment.draft.count }
+      end
+
+      it 'except when draft_comment is false' do
+        test_params = @test_params
+        test_params[:submission][:draft_comment] = false
+
+        expect { put 'update', test_params }.to change { SubmissionComment.count }.by(1)
+        expect { put 'update', test_params }.not_to change { SubmissionComment.draft.count }
+      end
+    end
+
     it "should allow setting 'student_entered_grade'" do
       course_with_student_logged_in(:active_all => true)
       @assignment = @course.assignments.create!(:title => "some assignment",
@@ -462,7 +514,7 @@ describe SubmissionsController do
       end
 
       it "should create a final provisional comment" do
-        @submission.find_or_create_provisional_grade!(scorer: @teacher)
+        @submission.find_or_create_provisional_grade!(@teacher)
         put 'update', :format => :json, :course_id => @course.id, :assignment_id => @assignment.id, :id => @user.id,
           :submission => {:comment => "provisional!", :provisional => true, :final => true}
 
@@ -497,47 +549,6 @@ describe SubmissionsController do
       get 'index', { :course_id => @course.id, :assignment_id => @assignment.id, :zip => '1' }, 'HTTP_ACCEPT' => '*/*'
       expect(response).to be_success
       expect(response.content_type).to eq 'test/file'
-    end
-  end
-
-  describe 'GET /submissions/:id param routing', type: :request do
-    before do
-      course_with_student_and_submitted_homework
-      @context = @course
-    end
-
-    describe "preview query param", type: :request do
-      it 'renders with submissions/previews#show if params is present and format is html' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}?preview=1"
-        expect(request.params[:controller]).to eq 'submissions/previews'
-        expect(request.params[:action]).to eq 'show'
-      end
-
-      it 'renders with submissions#show if params is present and format is json' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}?preview=1", format: :json
-        expect(request.params[:controller]).to eq 'submissions'
-        expect(request.params[:action]).to eq 'show'
-      end
-
-      it 'renders with action #show if params is not present' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
-        expect(request.params[:controller]).to eq 'submissions'
-        expect(request.params[:action]).to eq 'show'
-      end
-    end
-
-    describe "download query param", type: :request do
-      it 'renders with action #download if params is present' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}?download=12345"
-        expect(request.params[:controller]).to eq 'submissions/downloads'
-        expect(request.params[:action]).to eq 'show'
-      end
-
-      it 'renders with action #show if params is not present' do
-        get "/courses/#{@context.id}/assignments/#{@assignment.id}/submissions/#{@student.id}"
-        expect(request.params[:controller]).to eq 'submissions'
-        expect(request.params[:action]).to eq 'show'
-      end
     end
   end
 
@@ -652,7 +663,7 @@ describe SubmissionsController do
 
     it "leaves files in non user/group context alone" do
       assignment_model(context: @course)
-      weird_file = @assignment.attachments.create! name: 'blah', uploaded_data: default_uploaded_data
+      weird_file = @assignment.attachments.create! display_name: 'blah', uploaded_data: default_uploaded_data
       atts = SubmissionsController.copy_attachments_to_submissions_folder(@course, [weird_file])
       expect(atts).to eq [weird_file]
     end

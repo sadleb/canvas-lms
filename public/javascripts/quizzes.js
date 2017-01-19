@@ -40,13 +40,15 @@ define([
   'compiled/views/editor/KeyboardShortcuts',
   'INST', // safari sniffing for VO workarounds
   'quiz_formula_solution',
+  'quiz_labels',
   'jsx/shared/rce/RichContentEditor',
   'jsx/shared/conditional_release/ConditionalRelease',
+  'compiled/util/deparam',
   'jquery.ajaxJSON' /* ajaxJSON */,
   'jquery.instructure_date_and_time' /* time_field, datetime_field */,
   'jquery.instructure_forms' /* formSubmit, fillFormData, getFormData, formErrors, errorBox */,
   'jqueryui/dialog',
-  'jquery.instructure_misc_helpers' /* replaceTags, scrollSidebar, /\$\.underscore/ */,
+  'jquery.instructure_misc_helpers' /* replaceTags, /\$\.underscore/ */,
   'jquery.instructure_misc_plugins' /* .dim, confirmDelete, showIf */,
   'jquery.keycodes' /* keycodes */,
   'jquery.loadingImg' /* loadingImage */,
@@ -61,8 +63,8 @@ define([
             Handlebars, DueDateOverrideView, Quiz,
             DueDateList, QuizRegradeView, SectionList,
             MissingDateDialog,MultipleChoiceToggle,EditorToggle,TextHelper,
-            RCEKeyboardShortcuts, INST, QuizFormulaSolution, RichContentEditor,
-            ConditionalRelease){
+            RCEKeyboardShortcuts, INST, QuizFormulaSolution, addAriaDescription,
+            RichContentEditor, ConditionalRelease, deparam){
 
   var dueDateList, overrideView, quizModel, sectionList, correctAnswerVisibility,
       scoreValidation;
@@ -797,16 +799,7 @@ define([
       return result;
     },
 
-    updateDisplayComments: function() {
-      this.checkShowDetails();
-      $(".question_holder > .question > .question_comment").each(function() {
-        var val = $.trim($(this).find(".question_comment_text").html());
-        $(this).css('display', '').toggleClass('empty', !val);
-      });
-      $(".question_holder .answer_comment_holder").each(function() {
-        var val = $.trim($(this).find(".answer_comment").html());
-        $(this).css('display', '').toggleClass('empty', !val);
-      });
+    calculatePointsPossible: function() {
       var tally = 0;
       $("#questions .question_holder:not(.group) .question:not(#question_new)").each(function() {
         var val = parseFloat($(this).find(".question_points,.question_points.hidden").text());
@@ -816,17 +809,10 @@ define([
       $("#questions .group_top:not(#group_top_new)").each(function(){
         var val = parseFloat($(this).find(".question_points").text());
         if (isNaN(val) || val < 0) { val = 0; }
-        var pickCount = parseInt($(this).find(".pick_count").text(), 10);
+        var pickCount = $(this).find(".pick_count").text() || 0;
         if (isNaN(pickCount)) { pickCount = 0; }
         var groupId = this.id.replace("group_top_","")
-        questionCount = $(this.parentElement).find("[data-group-id='" + groupId + "']").length
-
-        var $warning = $('#insufficient_count_warning_' + groupId);
-        if (pickCount > ($(this).data('bank_question_count') || questionCount)) {
-          $warning.show();
-        } else {
-          $warning.hide();
-        }
+        var questionCount = $(this.parentElement).find("[data-group-id='" + groupId + "']").length
 
         // unless it is a question bank, make sure
         // enough questions are in the group
@@ -837,7 +823,33 @@ define([
         tally += val * pickCount;
       });
       tally = Math.round(tally * 100.0) / 100.0;
-      $(".points_possible").text(tally);
+      return tally;
+    },
+
+    updateDisplayComments: function() {
+      this.checkShowDetails();
+      $(".question_holder > .question > .question_comment").each(function() {
+        var val = $.trim($(this).find(".question_comment_text").html());
+        $(this).css('display', '').toggleClass('empty', !val);
+      });
+      $(".question_holder .answer_comment_holder").each(function() {
+        var val = $.trim($(this).find(".answer_comment").html());
+        $(this).css('display', '').toggleClass('empty', !val);
+      });
+      $("#questions .group_top:not(#group_top_new)").each(function(){
+        var pickCount = $(this).find(".pick_count").text() || 0;
+        if (isNaN(pickCount)) { pickCount = 0; }
+        var groupId = this.id.replace("group_top_","")
+        var questionCount = $(this.parentElement).find("[data-group-id='" + groupId + "']").length
+
+        var $warning = $('#insufficient_count_warning_' + groupId);
+        if (pickCount > ($(this).data('bank_question_count') || questionCount)) {
+          $warning.show();
+        } else {
+          $warning.hide();
+        }
+      });
+      $(".points_possible").text(this.calculatePointsPossible());
     },
 
     findContainerGroup: function($obj) {
@@ -1484,6 +1496,7 @@ define([
         $('#quiz_tabs').tabs("option", "disabled", false);
       } else {
         $('#quiz_tabs').tabs("option", "disabled", [2]);
+        $('#quiz_tabs').tabs("option", "active", 0)
       }
     }
   }
@@ -1500,7 +1513,6 @@ define([
 
     var $quiz_options_form = $("#quiz_options_form");
     var $quiz_edit_wrapper = $("#quiz_edit_wrapper");
-    $.scrollSidebar();
     $(".datetime_field").datetime_field();
     $("#questions").delegate('.group_top,.question,.answer_select,.comment', 'mouseover', function(event) {
       $(this).addClass('hover');
@@ -1730,7 +1742,7 @@ define([
         if (_.keys(errs).length > 0) {
           return false;
         }
-        else if (overrideView.containsSectionsWithoutOverrides() && !hasCheckedOverrides) {
+        if (overrideView.containsSectionsWithoutOverrides() && !hasCheckedOverrides) {
           sections = overrideView.sectionsWithoutOverrides();
           var missingDateView = new MissingDateDialog({
             validationFn: function(){ return sections },
@@ -1765,6 +1777,14 @@ define([
           if (overrides.length === 0) { overrides = false; }
           data['quiz[assignment_overrides]'] = overrides;
         }
+        if (ENV['CONDITIONAL_RELEASE_SERVICE_ENABLED']) {
+          var crError = conditionalRelease.editor.validateBeforeSave();
+          if (crError) {
+            $('#quiz_tabs').tabs("option", "active", 2);
+            conditionalRelease.editor.focusOnError();
+            return false;
+          }
+        }
 
         var serializingEvent = $.Event('serializing');
 
@@ -1782,47 +1802,71 @@ define([
         $quiz_edit_wrapper.find(".btn.save_and_publish").attr('disabled', true);
       },
 
-      success: function(data) {
-        var $form = $(this);
-        $quiz_edit_wrapper
-          .find(".btn.saving")
-          .text(I18n.t('buttons.saved', "Saved!"));
-        if (data.quiz.assignment) {
-          var assignment = data.quiz.assignment;
-          if ($("#assignment_option_" + assignment.id).length === 0) {
-            if (assignment.assignment_group && $("#assignment_group_optgroup_" + assignment.assignment_group_id).length === 0) {
-              var assignment_group = assignment.assignment_group;
-              var $optgroup = $(document.createElement('optgroup'));
-              $optgroup.attr('label', assignment_group.name).attr('id', 'assignment_group_optgroup_' + assignment_group.id);
-            }
-            var $group = $("#assignment_group_optgroup_" + assignment.assignment_group_id);
-            var $option = $(document.createElement('option'));
-            $option.attr('id', 'assignment_option_' + assignment.id).val(assignment.id).text(assignment.title);
-            $group.append($option);
-          }
-        }
-        $(".show_rubric_link").showIf(data.quiz.assignment);
-        $("#quiz_assignment_id").val(data.quiz.quiz_type || "practice_quiz").change();
-        location.href = $(this).attr('action');
-        quiz.updateDisplayComments();
-      },
-      error: function(data) {
-        $("#quiz_edit_wrapper")
-          .find(".btn.save_quiz_button")
-          .attr('disabled', false)
-          .removeClass("saving")
-          .text(I18n.t('buttons.save', "Save"));
-        $("#quiz_edit_wrapper")
-          .find(".btn.save_and_publish")
-          .attr('disabled', false)
-          .removeClass("saving")
-          .text(I18n.t('buttons.save_and_publish', "Save & Publish"));
-        $("#quiz_edit_wrapper")
-          .find('input[name="publish"]')
-          .remove();
+      onSubmit: function(promise, data) {
+        var form = this;
 
-        $(this).trigger('xhrError', data);
-        $(this).formErrors(data);
+        if (ENV['CONDITIONAL_RELEASE_SERVICE_ENABLED']) {
+          promise = promise.pipe(function(promisedData) {
+            if (promisedData && promisedData.quiz) {
+              conditionalRelease.editor.updateAssignment({
+                id: promisedData.quiz.assignment_id,
+                grading_type: 'points',
+                points_possible: promisedData.quiz.points_possible
+              });
+            }
+            return conditionalRelease.editor.save().pipe(function() {
+              return promisedData;
+            });
+          });
+        }
+        promise.then(success.bind(this), error.bind(this));
+
+        function success(data) {
+          $quiz_edit_wrapper
+            .find(".btn.saving")
+            .text(I18n.t('buttons.saved', "Saved!"));
+          if (data.quiz.assignment) {
+            var assignment = data.quiz.assignment;
+            if ($("#assignment_option_" + assignment.id).length === 0) {
+              if (assignment.assignment_group && $("#assignment_group_optgroup_" + assignment.assignment_group_id).length === 0) {
+                var assignment_group = assignment.assignment_group;
+                var $optgroup = $(document.createElement('optgroup'));
+                $optgroup.attr('label', assignment_group.name).attr('id', 'assignment_group_optgroup_' + assignment_group.id);
+              }
+              var $group = $("#assignment_group_optgroup_" + assignment.assignment_group_id);
+              var $option = $(document.createElement('option'));
+              $option.attr('id', 'assignment_option_' + assignment.id).val(assignment.id).text(assignment.title);
+              $group.append($option);
+            }
+          }
+          $(".show_rubric_link").showIf(data.quiz.assignment);
+          $("#quiz_assignment_id").val(data.quiz.quiz_type || "practice_quiz").change();
+          if (deparam()['return_to']) {
+            location.href = deparam()['return_to']
+          } else {
+            location.href = $(this).attr('action');
+          }
+          quiz.updateDisplayComments();
+        }
+
+        function error(data) {
+          $("#quiz_edit_wrapper")
+            .find(".btn.save_quiz_button")
+            .attr('disabled', false)
+            .removeClass("saving")
+            .text(I18n.t('buttons.save', "Save"));
+          $("#quiz_edit_wrapper")
+            .find(".btn.save_and_publish")
+            .attr('disabled', false)
+            .removeClass("saving")
+            .text(I18n.t('buttons.save_and_publish', "Save & Publish"));
+          $("#quiz_edit_wrapper")
+            .find('input[name="publish"]')
+            .remove();
+
+          $(this).trigger('xhrError', data);
+          $(this).formErrors(data);
+        }
       }
     });
 
@@ -2031,7 +2075,7 @@ define([
         $formQuestion.triggerHandler('recompute_variables', true);
       } else {
         // must use > in selector
-        $question.find(".text > .answers .answer").each(function() {
+        $question.find(".text > .answers .answer").each(function(index) {
           var answer = $(this).getTemplateData({
             textValues: data.textValues,
             htmlValues: data.htmlValues
@@ -2039,6 +2083,7 @@ define([
           answer.answer_type = data.answer_type;
           answer.question_type = data.question_type;
           var $answer = makeFormAnswer(answer);
+          addAriaDescription($answer, index+1);
           $form.find(".form_answers").append($answer);
         });
       }
@@ -2113,17 +2158,22 @@ define([
 
       // create toggler instance on the first click
       if (!toggler) {
+        var tinyOptions = {}
+
         var inputColumn = $comment.parents().find('.answer_type:visible')[0]
 
-        var rightMargin = parseInt($comment.css('marginRight')) || 0
-        var leftMargin = parseInt($comment.css('marginLeft')) || 0
-        var commentMargin = rightMargin + leftMargin
+        if (inputColumn) {
+          var rightMargin = parseInt($comment.css('marginRight')) || 0
+          var leftMargin = parseInt($comment.css('marginLeft')) || 0
+          var commentMargin = rightMargin + leftMargin
 
-        var rceWidth = inputColumn.offsetWidth - commentMargin
+          var rceWidth = inputColumn.offsetWidth - commentMargin
+          tinyOptions.width = rceWidth
+        }
 
         toggler = new EditorToggle($comment_html, {
           editorBoxLabel: $link.title,
-          tinyOptions: {width: rceWidth}
+          tinyOptions: tinyOptions
         });
 
         toggler.editButton = $link;
@@ -2407,7 +2457,6 @@ define([
           $dialog.addClass('loaded');
           for(idx in banks) {
             var bank = banks[idx].assessment_question_bank;
-            bank.title = TextHelper.truncateText(bank.title)
             var $bank = $dialog.find(".bank.blank:first").clone(true).removeClass('blank');
             $bank.fillTemplateData({data: bank, dataValues: ['id', 'context_type', 'context_id']});
             $dialog.find(".bank_list").append($bank);
@@ -3687,6 +3736,7 @@ define([
 
     RichContentEditor.loadNewEditor($("#quiz_description"), {
       focus: true,
+      manageParent: true,
       tinyOptions: {
         aria_label: I18n.t('label.quiz.instructions', 'Quiz instructions, rich text area')
       }
@@ -3735,16 +3785,28 @@ define([
     if (ENV['CONDITIONAL_RELEASE_SERVICE_ENABLED']) {
       window.conditionalRelease = window.conditionalRelease || {};
       conditionalRelease.editor = ConditionalRelease.attach(
-        $('#conditional-release-target').get(0),
+        $('#conditional_release_target').get(0),
         I18n.t('quiz'),
         ENV['CONDITIONAL_RELEASE_ENV']);
 
-      $('div.form').on('change', function(event) {
-        if (!conditionalRelease.assignmentDirty) {
-          conditionalRelease.assignmentDirty = true
-          conditionalRelease.editor.setProps({ assignmentDirty: true });
+      $('#questions').on("change DOMNodeRemoved DOMNodeInserted", function() {
+        conditionalRelease.assignmentUpToDate = false;
+      });
+      $("#quiz_tabs").on("tabsbeforeactivate", function(event) {
+        if (!conditionalRelease.assignmentUpToDate) {
+          var id = null;
+          if (quizModel) {
+            id = quizModel.attributes.assignment_id;
+          }
+          conditionalRelease.editor.updateAssignment({
+            id: id,
+            grading_type: "points",
+            points_possible: quiz.calculatePointsPossible()
+          });
+          conditionalRelease.assignmentUpToDate = true;
         }
       });
+
     }
   });
 

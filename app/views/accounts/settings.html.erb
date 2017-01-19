@@ -27,6 +27,11 @@
     fieldset {
       margin: 2em 0;
     }
+    fieldset.nested {
+      margin-top: 0;
+      margin-left: 20px
+    }
+
     legend{
       font-size: 1.1em;
     }
@@ -91,7 +96,7 @@
                 <% no_language = t(:no_language_preference, "Not set (defaults to %{language})", :language => available_locales[infer_locale(:context => @context.parent_account)]) %>
                 <%= f.select :default_locale, [[no_language, nil]] + available_locales.invert.sort, {:selected => @context.default_locale}, {:class => 'locale'} %>
                 <%= render :partial => 'shared/locale_warning' %>
-                <p class="unbreakable"><%= mt :transifex_message, <<-TEXT, :transifex_url => "https://www.transifex.com/projects/p/canvas-lms/"
+                <p class="unbreakable"><%= mt :transifex_message, <<-TEXT, :transifex_url => "https://www.transifex.com/instructure/canvas-crowdsource/"
 Join the [Canvas Translation Community](%{transifex_url})
 TEXT
                 %>
@@ -190,7 +195,7 @@ TEXT
                   <% disabled = hash[:locked] && hash[:inherited] %>
                   <tr>
                     <td colspan="2"><%= r.check_box :value, :checked => hash[:value], :disabled => disabled %>
-                      <%= r.label :restrict_student_future_view, :en => "Restrict students from accessing courses before start date" %>
+                      <%= r.label :value , t("Restrict students from accessing courses before start date") %>
                     </td>
                   </tr>
                   <% unless disabled %>
@@ -226,7 +231,25 @@ TEXT
                   <% disabled = hash[:locked] && hash[:inherited] %>
                   <tr>
                     <td colspan="2"><%= r.check_box :value, :checked => hash[:value], :disabled => disabled %>
-                      <%= r.label :restrict_student_past_view, :en => "Restrict students from accessing courses after end date" %>
+                      <%= r.label :value, t("Restrict students from accessing courses after end date") %>
+                    </td>
+                  </tr>
+                  <% unless disabled %>
+                    <tr>
+                      <td colspan="2" class="sub_checkbox">
+                        <%= r.check_box :locked, :checked => hash[:locked] %>
+                        <%= r.label :locked, :en => "Lock this setting for sub-accounts and courses" %>
+                      </td>
+                    </tr>
+                  <% end %>
+                <% end %>
+
+                <%= settings.fields_for :lock_all_announcements do |r| %>
+                  <% hash = @account.lock_all_announcements %>
+                  <% disabled = hash[:locked] && hash[:inherited] %>
+                  <tr>
+                    <td colspan="2"><%= r.check_box :value, :checked => hash[:value], :disabled => disabled %>
+                      <%= r.label :lock_all_announcements, :en => "Disable comments on announcements" %>
                     </td>
                   </tr>
                   <% unless disabled %>
@@ -278,10 +301,8 @@ TEXT
               <tbody id="ip_filters">
                 <% ((@account.settings[:ip_filters] || {}).sort_by(&:first) << [nil, nil]).each do |name, filter| %>
                   <tr class="ip_filter <%= raw ' blank" style="display: none;' if name.nil? %>">
-                    <td><%= before_label(t(:ip_filter_name_label, "Name")) %></td>
-                    <td><input type="text" class="name" value="<%= name %>"/></td>
-                    <td><%= before_label(t(:ip_filter_filter_label, "Filter")) %></td>
-                    <td><input type="text" class="value" value="<%= filter %>" maxlength="255"/></td>
+                    <td> <label> <%= t("Name:") %></label> <input aria-label="<%= t("Name") %>" type="text" class="name" value="<%= name %>"/></td>
+                    <td> <label> <%= t("Filter:") %></label> <input aria-label="<%= t("Filter") %>" type="text" class="value" value="<%= filter %>" maxlength="255"/></td>
                     <td>
                       <a href="#" title="<%= t(:quiz_ip_filters_delete, "Remove Filter") %>" class="delete_filter_link"><i class="icon-end standalone-icon"></i></a>
                     </td>
@@ -289,7 +310,10 @@ TEXT
                 <% end %>
               </tbody>
             </table>
-            <a href="#" class="icon-add add_ip_filter_link" style="font-size: 0.9em;"><%= t(:add_ip_filter_link, "Add another filter") %></a>
+            <a href="#" class="icon-add add_ip_filter_link">
+              <span aria-hidden="true"><%= t(:add_ip_filter_link, "Filter") %></span>
+              <span class="screenreader-only"><%= t("Add Quiz IP Filter") %></span>
+            </a>
           </fieldset>
         <% end %>
 
@@ -319,10 +343,14 @@ TEXT
                     <%= settings.check_box :enable_eportfolios, :checked => @account.settings[:enable_eportfolios] != false %>
                     <%= settings.label :enable_eportfolios, :en => "ePortfolios" %>
                   </div>
-                  <div>
-                    <%= f.check_box :allow_sis_import, :checked => @account.allow_sis_import %>
-                    <%= f.label :allow_sis_import, :en => "SIS imports" %>
-                  </div>
+
+                  <% if !@account.feature_enabled?(:new_sis_integrations) %>
+                    <div id="old_sis_integrations">
+                      <%= f.check_box :allow_sis_import, :checked => @account.allow_sis_import %>
+                      <%= f.label :allow_sis_import, t("SIS imports") %>
+                    </div>
+                  <% end %>
+
                   <div>
                     <%= settings.check_box :allow_invitation_previews, :checked => @account.settings[:allow_invitation_previews] %>
                     <%= settings.label :allow_invitation_previews, :en => "Invitation Previews" %>
@@ -331,22 +359,23 @@ TEXT
                     <%= settings.check_box :enable_alerts, :checked => @account.settings[:enable_alerts] %>
                     <%= settings.label :enable_alerts, :en => "Alerts (beta)" %>
                   </div>
-                <% end %><%# end of site_admin? %>
+                <% end %>
+                <%# end of site_admin? %>
+
+
                 <div id="global_includes_warning_message_wrapper">
                   <%= settings.check_box :global_includes, :checked => @account.settings[:global_includes] %>
                   <%= settings.label :global_includes, :en => "Custom CSS/JavaScript overrides" %>
-                  <% if use_new_styles? %>
-                    <div id="global_includes_warning_message" class="account_settings__help-text">
-                      <p>
-                        <%= t ("Custom CSS and Javascript may cause accessibility issues or conflicts with future Canvas updates!")%>
-                      </p>
-                      <p>
-                        <%= t do %>
-                        Before implementing custom CSS or Javascript, please refer to <a href="https://community.canvaslms.com/docs/DOC-3010" target="_blank"> our documentation</a>.
-                        <% end %>
-                      </p>
-                    </div>
-                  <% end %><%# end of use_new_styles? %>
+                  <div id="global_includes_warning_message" class="account_settings__help-text">
+                    <p>
+                      <%= t ("Custom CSS and Javascript may cause accessibility issues or conflicts with future Canvas updates!")%>
+                    </p>
+                    <p>
+                      <%= t do %>
+                      Before implementing custom CSS or Javascript, please refer to <a href="https://community.canvaslms.com/docs/DOC-3010" target="_blank"> our documentation</a>.
+                      <% end %>
+                    </p>
+                  </div>
                 </div>
                 <div id="show_scheduler_checkbox">
                   <%= settings.check_box :show_scheduler, :checked => @account.settings[:show_scheduler] %>
@@ -356,10 +385,13 @@ TEXT
                   <%= settings.check_box :enable_profiles, :checked => @account.settings[:enable_profiles] %>
                   <%= settings.label :enable_profiles, :en => "Enable Profiles" %>
                 </div>
-              <% end %><%# end of :manage_site_settings %>
+              <% end %>
+              <%# end of :manage_site_settings %>
+
+
               <div>
                 <%= settings.check_box :sub_account_includes, checked: @account.settings[:sub_account_includes] %>
-                <%= settings.label :new_sub_account_includes, :en => "Let sub-accounts use the Theme Editor to customize their own branding" %>
+                <%= settings.label :sub_account_includes, :en => "Let sub-accounts use the Theme Editor to customize their own branding" %>
               </div>
               <% if @account.canvas_authentication? %>
                 <div>
@@ -418,236 +450,16 @@ TEXT
           <% end %>
         </fieldset>
 
-        <% unless use_new_styles? %>
-          <fieldset id="account_settings_global_includes_settings" style="<%= hidden unless @account.allow_global_includes? %>">
-            <legend><%= t(:global_js_and_css_includes_title, "Global JavaScript and CSS Includes") %></legend>
-            <p style="font-size: 0.9em;"><%= t(:global_js_and_css_includes_description, "These files will be included on all page loads for your account") %></p>
-            <%= f.fields_for :settings do |settings| %>
-              <table class="formtable">
-                <tr>
-                  <td><%= settings.blabel :global_javascript, :en => "Global JavaScript URL" %></td>
-                  <td><%= settings.text_field :global_javascript, :value => @account.settings[:global_javascript] %></td>
-                </tr>
-                <tr>
-                  <td><%= settings.blabel :global_stylesheet, :en => "Global CSS URL" %></td>
-                  <td><%= settings.text_field :global_stylesheet, :value => @account.settings[:global_stylesheet] %></td>
-                </tr>
-              </table>
-              <div>
-                <%= settings.check_box :sub_account_includes, :checked => @account.settings[:sub_account_includes] %>
-                <%= settings.label :sub_account_includes, :en => "Let sub-accounts define additional includes" %>
-              </div>
-            <% end %>
-          </fieldset>
-        <% end %>
-
-        <% if !@account.site_admin? &&
-                @account.root_account? &&
-                @account.feature_allowed?(:post_grades) &&
-                @account.grants_right?(@current_user, :manage_site_settings) %>
-            <fieldset id="add_sis_app_token">
-              <legend><%= t("SIS Agent Token Authentication") %></legend>
-              <p style="font-size: 0.9em;"><%= t("This will allow you to authenticate Canvas for posting grades to SIS") %></p>
-              <%= f.fields_for :settings do |settings| %>
-                  <table class="formtable">
-                    <tr>
-                      <td><%= settings.blabel :sis_app_token, :en => "SIS Agent Token" %></td>
-                      <td><%= settings.text_field :sis_app_token, :value => @account.settings[:sis_app_token] %></td>
-                    </tr>
-                    <tr>
-                      <td><%= settings.blabel :sis_app_url, :en => "SIS App URL" %></td>
-                      <td><%= settings.text_field :sis_app_url, :value => @account.settings[:sis_app_url] %></td>
-                    </tr>
-                  </table>
-              <% end %>
-            </fieldset>
-        <% end %>
-
-        <% if !@account.site_admin? && Assignment.sis_grade_export_enabled?(@account) %>
-          <fieldset>
-            <legend><%= t("SIS Grade Export Settings") %></legend>
-            <table class="formtable">
-              <%= f.fields_for :settings do |settings| %>
-                <%= settings.fields_for :sis_default_grade_export do |r| %>
-                  <% hash = @account.sis_default_grade_export %>
-                  <% disabled = hash[:locked] && hash[:inherited] %>
-                  <tr>
-                    <td colspan="2">
-                      <div class="ic-Checkbox-group">
-                        <div class="ic-Form-control ic-Form-control--checkbox">
-                          <%= r.check_box :value, :checked => hash[:value], :disabled => disabled %>
-                          <label class="ic-Label" for="account_settings_sis_default_grade_export_value" />
-                          <%= t("\"Post Grades to SIS\" checkbox is enabled by default for assignments, graded discussions, and quizzes") %>
-                        </label>
-                      </div>
-                    </div>
-                  </td>
-                  </tr>
-                  <% unless disabled %>
-                    <tr>
-                      <td colspan="2" class="sub_checkbox">
-                        <%= r.check_box :locked, :checked => hash[:locked], :id => "account_settings_sis_default_grade_export_locked_for_sub_accounts" %>
-                        <%= r.label :locked_for_sub_accounts, :en => "Lock this setting for sub-accounts" %>
-                      </td>
-                    </tr>
-                  <% end %>
-                <% end %>
-              <% end %>
-            </table>
-          </fieldset>
-        <% end %>
-
-        <% if @account.root_account? && !@account.site_admin? && Setting.get("show_feedback_link", "false") == "true"  %>
-          <fieldset>
-            <% if use_new_styles? %>
-              <legend><%= t("Customize Help Link") %></legend>
-              <div class="ic-Form-group ic-Form-group--horizontal">
-                <label class="ic-Form-control">
-                  <span class="ic-Label">
-                    <%= t("Link text") %>
-                  </span>
-                  <input
-                    type="text"
-                    class="ic-Input"
-                    name="account[settings][help_link_name]"
-                    value="<%= @account.settings[:help_link_name] %>"
-                    placeholder="<%= t('Help') %>"
-                  />
-                </label>
-                <fieldset class="ic-Fieldset ic-Fieldset--radio-checkbox">
-                  <legend class="ic-Legend">
-                    <%= t("Navigation icon") %>
-                  </legend>
-                  <div class="ic-Form-control ic-Form-control--radio ic-Form-control--radio-inline">
-                    <label class="ic-Radio ic-Radio--icon-only" data-icon-value="help">
-                      <input name="account[settings][help_link_icon]"
-                        type="radio"
-                        value=""
-                        <%= 'checked' if @account.settings[:help_link_icon].blank? %>
-                      />
-                      <span class="ic-Label">
-                        <span class="screenreader-only">
-                          <%= t("Question mark icon") %>
-                        </span>
-                        <%= svg_icon :help %>
-                      </span>
-                    </label>
-                    <label class="ic-Radio ic-Radio--icon-only" data-icon-value="information">
-                      <input name="account[settings][help_link_icon]"
-                        type="radio"
-                        value="information"
-                        <%= 'checked' if @account.settings[:help_link_icon] == 'information' %>
-                      />
-                      <span class="ic-Label">
-                        <span class="screenreader-only">
-                          <%= t("Information icon") %>
-                        </span>
-                        <%= svg_icon :information %>
-                      </span>
-                    </label>
-                    <label class="ic-Radio ic-Radio--icon-only" data-icon-value="folder">
-                      <input name="account[settings][help_link_icon]"
-                        type="radio"
-                        value="folder"
-                        <%= 'checked' if @account.settings[:help_link_icon] == 'folder' %>
-                      />
-                      <span class="ic-Label">
-                        <span class="screenreader-only">
-                          <%= t("Folder icon") %>
-                        </span>
-                        <%= svg_icon :folder %>
-                      </span>
-                    </label>
-                    <label class="ic-Radio ic-Radio--icon-only" data-icon-value="cog">
-                      <input name="account[settings][help_link_icon]"
-                        type="radio"
-                        value="cog"
-                        <%= 'checked' if @account.settings[:help_link_icon] == 'cog' %>
-                      />
-                      <span class="ic-Label">
-                        <span class="screenreader-only">
-                          <%= t("Cog icon") %>
-                        </span>
-                        <%= svg_icon :cog %>
-                      </span>
-                    </label>
-                    <label class="ic-Radio ic-Radio--icon-only" data-icon-value="lifepreserver">
-                      <input
-                        name="account[settings][help_link_icon]"
-                        type="radio" value="lifepreserver"
-                        <%= 'checked' if @account.settings[:help_link_icon] == 'lifepreserver' %>
-                      />
-                      <span class="ic-Label">
-                        <span class="screenreader-only">
-                          <%= t("Life preserver icon") %>
-                        </span>
-                        <%= svg_icon :lifepreserver %>
-                      </span>
-                    </label>
-                  </div>
-                </fieldset>
-              </div>
+        <% unless @account.site_admin? %>
+            <% if @account.feature_enabled?(:new_sis_integrations) %>
+                <%= render partial: 'sis_integration_settings', locals: { f: f } %>
             <% else %>
-              <legend><%= t("Custom Links to include in the help dialog popup") %></legend>
+                <%= render partial: 'sis_integration_settings_old', locals: { f: f } %>
             <% end %>
+        <% end %>
 
-            <p style="font-size: 0.9em;">
-              <%= t("If you would like to link to your own campus support website in the help dialog you can do that here.") %>
-            </p>
-
-            <%= f.fields_for :custom_help_links do |custom_help_links, i| %>
-              <div id="custom_help_links">
-                <% ((@account.settings[:custom_help_links] || []) << {}).each_with_index do |help_link, i| %>
-                  <div class="custom_help_link <%= raw ' blank" style="display: none;' if help_link.empty? %>">
-                    <button type="button" class="Button Button--link delete">
-                      <i class="icon-end" aria-hidden="true"></i>
-                      <span class="screenreader-only"><%= t("Delete custom help link") %></span>
-                    </button>
-                    <input type="hidden" name="account[custom_help_links][<%= i %>][state]" value="<%= help_link[:state] || 'active' %>" id="custom_help_links_<%= i %>_state" class="custom_help_link_state"/>
-                    <table class="formtable">
-                      <tr>
-                        <td><label for="custom_help_links_<%= i %>_text"><%= before_label :help_link_text, "Text to display for link" %></label></td>
-                        <td><input type="text" name="account[custom_help_links][<%= i %>][text]" value="<%= help_link[:text] %>" id="custom_help_links_<%= i %>_text"></td>
-                      </tr>
-                      <tr>
-                        <td><label for="custom_help_links_<%= i %>_subtext"><%= before_label :help_link_subtext, "Sub-text" %></label></td>
-                        <td><input type="text" name="account[custom_help_links][<%= i %>][subtext]" value="<%= help_link[:subtext] %>" id="custom_help_links_<%= i %>_subtext"></td>
-                      </tr>
-                      <tr>
-                        <td><label for="custom_help_links_<%= i %>_text"><%= before_label :help_link_url, "URL" %></label></td>
-                        <td><input type="text" name="account[custom_help_links][<%= i %>][url]" value="<%= help_link[:url] %>" id="custom_help_links_<%= i %>_url"></td>
-                      </tr>
-                      <tr>
-                        <td><label><%= before_label :help_link_available_to, "Available to" %></label></td>
-                        <td>
-                          <input type="checkbox" name="account[custom_help_links][<%= i %>][available_to][]" value="user"  <%= 'checked' if help_link.empty? or help_link[:available_to].try :include?, 'user' %> id="custom_help_links_<%= i %>_available_to_user">
-                          <label for="custom_help_links_<%= i %>_available_to_user"><%= t :help_link_available_to_all_users, "Users" %></label>
-
-                          <input type="checkbox" name="account[custom_help_links][<%= i %>][available_to][]" value="student" <%= 'checked' if help_link[:available_to].try :include?, 'student' %> id="custom_help_links_<%= i %>_available_to_student">
-                          <label for="custom_help_links_<%= i %>_available_to_student"><%= t :help_link_available_to_all_students, "Students" %></label>
-
-                          <input type="checkbox" name="account[custom_help_links][<%= i %>][available_to][]" value="teacher" <%= 'checked' if help_link[:available_to].try :include?, 'teacher' %> id="custom_help_links_<%= i %>_available_to_teacher">
-                          <label for="custom_help_links_<%= i %>_available_to_teacher"><%= t :help_link_available_to_all_teachers, "Teachers" %></label>
-
-                          <input type="checkbox" name="account[custom_help_links][<%= i %>][available_to][]" value="admin" <%= 'checked' if help_link[:available_to].try :include?, 'admin' %> id="custom_help_links_<%= i %>_available_to_admin">
-                          <label for="custom_help_links_<%= i %>_available_to_admin"><%= t :help_link_available_to_all_admins, "Admins" %></label>
-                        </td>
-                      </tr>
-                    </table>
-                  </div>
-                <% end %>
-              </div>
-            <% end %>
-            <button
-              type="button"
-              class="Button Button--link add_custom_help_link"
-              title="<%= t('Add a custom help link') %>"
-              aria-label="<%= t('Add a custom help link') %>"
-            >
-              <i class="icon-add" aria-hidden="true"></i>
-              <%= t("Add a custom help link") %>
-            </button>
-          </fieldset>
+        <% if @account.root_account? && !@account.site_admin? && show_feedback_link? %>
+          <div id="custom_help_link_settings"></div>
         <% end %>
 
         <% unless @account.site_admin? %>
@@ -688,7 +500,7 @@ TEXT
               <tr>
                 <td>&nbsp;</td>
                 <td>
-                  <a href="<%= account_turnitin_confirmation_path(@account) %>" class="confirm_turnitin_settings_link btn">
+                  <a href="<%= account_turnitin_confirmation_path(@account) %>" class="confirm_turnitin_settings_link Button">
                     <%= t(:confirm_turnitin_settings_link, "confirm Turnitin settings") %>
                   </a>
                 </td>
@@ -774,7 +586,7 @@ acknowledge that you have read and agreed to the
         <%= render partial: 'external_integration_keys', locals: { f: f } %>
 
         <div class="button-container">
-          <button type="submit" class="btn btn-primary"><%= t(:update_settings_button, "Update Settings") %></button>
+          <button type="submit" class="Button Button--primary"><%= t(:update_settings_button, "Update Settings") %></button>
         </div>
       <% end %>
     </div>
@@ -812,7 +624,7 @@ acknowledge that you have read and agreed to the
               </tr>
               <tr>
                 <td><%= t 'notifications.email_date', 'Date' %></td>
-                <td><%= DateTime.now.strftime('%B %d, %Y %I:%M:%S %p %z') %></td>
+                <td><%= datetime_string(Time.zone.now) %></td>
               </tr>
               <tr>
                 <td><%= t 'notifications.email_to', 'To' %></td>
@@ -852,7 +664,7 @@ acknowledge that you have read and agreed to the
               </tr>
               <tr>
                 <td><%= t 'notifications.email_date', 'Date' %></td>
-                <td><%= DateTime.now.strftime('%B %d, %Y %I:%M:%S %p %z') %></td>
+                <td><%= datetime_string(Time.zone.now) %></td>
               </tr>
               <tr>
                 <td><%= t 'notifications.email_to', 'To' %></td>
@@ -889,7 +701,7 @@ acknowledge that you have read and agreed to the
         <% end %>
 
         <div class="button-container">
-          <button type="submit" class="btn btn-primary"><%= t(:update_settings_button, "Update Settings") %></button>
+          <button type="submit" class="Button Button--primary"><%= t(:update_settings_button, "Update Settings") %></button>
         </div>
       <% end %>
     </div>
@@ -906,7 +718,7 @@ acknowledge that you have read and agreed to the
     </ul>
     <% unless available_roles.empty? %>
       <% js_bundle :user_lists %>
-      <a href="#" class="add_users_link btn btn-primary"><i class="icon-add"></i> <%= t('links.add_admins', %{Add Account Admins}) %></a>
+      <a href="#" class="add_users_link Button Button--primary" title="<%= t('Add Account Admins') %>" aria-label="<%= t('Add Account Admins') %>"><i class="icon-plus"></i> <%= t('links.add_admins', %{Account Admins}) %></a>
       <%= form_tag account_add_account_user_url(@account), {:id => "enroll_users_form", :style => "display: none;"} do  %>
         <h2><%= t(:add_admin_title, "Add Account Admins") %></h2>
         <div style="margin-top: 5px;">
@@ -921,10 +733,10 @@ acknowledge that you have read and agreed to the
           <%= render :partial => 'shared/user_lists' %>
         </div>
         <div class="form-actions">
-          <button type="button" class="btn go_back_button"><%= t('buttons.modify_users', %{Go back and edit the list of users}) %></button>
-          <button type="button" class="btn cancel_button"><%= t('#buttons.cancel', %{Cancel}) %></button>
-          <button type="button" class="btn btn-primary verify_syntax_button"><%= t('buttons.continue', %{Continue...}) %></button>
-          <button type="submit" class="btn btn-primary add_users_button"><%= t('buttons.add_users', %{OK Looks Good, Add These Users}) %></button>
+          <button type="button" class="Button go_back_button"><%= t('buttons.modify_users', %{Go back and edit the list of users}) %></button>
+          <button type="button" class="Button cancel_button"><%= t('#buttons.cancel', %{Cancel}) %></button>
+          <button type="button" class="Button Button---primary verify_syntax_button"><%= t('buttons.continue', %{Continue...}) %></button>
+          <button type="submit" class="Button Button--primary add_users_button"><%= t('buttons.add_users', %{OK Looks Good, Add These Users}) %></button>
 
         </div>
       <% end %>
@@ -1029,8 +841,8 @@ acknowledge that you have read and agreed to the
       <% end %>
     </ul>
     <% if can_do(@account, @current_user, :manage_alerts) %>
-      <button id="add_announcement_button" class="btn btn-primary element_toggler add_notification_toggle_focus" aria-controls="add_notification_form">
-        <i class="icon-plus"></i> <%= t("Add a New Announcement") %>
+      <button id="add_announcement_button" class="Button Button--primary element_toggler add_notification_toggle_focus" aria-controls="add_notification_form" title="<%= t('Add New Announcement') %>" aria-label="<%= t('Add New Announcement') %>">
+        <i class="icon-plus"></i> <%= t("New Announcement") %>
       </button>
       <%= form_for :account_notification,
        url: account_account_notifications_url(@account),
@@ -1185,7 +997,7 @@ acknowledge that you have read and agreed to the
         </div>
 
         <div class="ic-Form-actions">
-          <button type="Button" class="element_toggler btn button-secondary add_notification_cancel_focus" aria-controls="add_notification_form">
+          <button type="Button" class="element_toggler Button Button--secondary add_notification_cancel_focus" aria-controls="add_notification_form">
             <%= t('#buttons.cancel', %{Cancel}) %>
           </button>
           <button type="submit" class="Button Button--primary">
@@ -1238,7 +1050,7 @@ acknowledge that you have read and agreed to the
                   (<%= extra_text %>)
                 <% end %>
                 <% if last_complete.workflow_state == 'complete' %>
-                  <%= link_to "<i class='icon-download'></i>".html_safe, context_url(last_complete.account, :context_file_download_url, last_complete.attachment.id) %>
+                  <%= link_to "<i class='icon-download'></i>".html_safe, context_url(last_complete.account, :context_file_download_url, last_complete.attachment.id), 'aria-label' => t('Download Report'), 'title' => t('Download Report') %>
                 <% end %>
               <% else %>
                 <%= t 'report_last_run_never', 'Never' %>
@@ -1253,20 +1065,20 @@ acknowledge that you have read and agreed to the
                         <%= render :partial => parameters_partial if parameters_partial %>
                       </div>
                       <br />
-                      <a href="#" id="run_<%= report %>" class="btn btn-primary btn-small run_report_link"><%= t 'links.run_report', 'Run Report' %></a>
+                      <a href="#" id="run_<%= report %>" class="Button Button--primary Button--small run_report_link"><%= t 'links.run_report', 'Run Report' %></a>
                     </form>
                   </div>
                 </div>
                 <span class="running_report_message" style="<%= hidden unless in_progress %>">
                   <%= t('report_running', 'The report is running.*You\'ll receive an email when it is done.*', :wrapper => '<div>\1</div>') %>
                 </span>
-                <a href="#" id="configure_<%= report %>" style="<%= hidden if in_progress %>" class="btn btn-small configure_report_link"><%= t 'links.configure_report', 'Configure...' %></a>
+                <a href="#" id="configure_<%= report %>" style="<%= hidden if in_progress %>" class="Button Button--small configure_report_link"><%= t 'links.configure_report', 'Configure...' %></a>
               <% else %>
                 <form id="<%= report %>_form" class="run_report_form" action="<%= api_v1_account_create_report_path(@account, report) %>">
                   <span class="running_report_message" style="<%= hidden unless in_progress %>">
                     <%= t('report_running', 'The report is running.*You\'ll receive an email when it is done.*', :wrapper => '<div>\1</div>') %>
                   </span>
-                  <a href="#" id="run_<%= report %>" style="<%= hidden if in_progress %>" class="btn btn-small btn-primary run_report_link"><%= t 'links.run_report', 'Run Report' %></a>
+                  <a href="#" id="run_<%= report %>" style="<%= hidden if in_progress %>" class="Button Button--small Button--primary run_report_link"><%= t 'links.run_report', 'Run Report' %></a>
                 </form>
               <% end %>
             </td>

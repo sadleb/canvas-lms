@@ -303,6 +303,7 @@ module SIS
               @users_to_touch_ids.add(user.id)
               courses_to_recache_due_dates << enrollment.course_id if enrollment.workflow_state_changed?
               enrollment.sis_batch_id = @batch.id if @batch
+              enrollment.skip_touch_user = true
               begin
                 enrollment.save_without_broadcasting!
               rescue ActiveRecord::RecordInvalid
@@ -311,6 +312,19 @@ module SIS
                 msg += "user: #{user_id}, role: #{role_name}, error: " +
                 msg += enrollment.errors.full_messages.join(",") + ")"
                 @messages << msg
+                next
+              rescue ActiveRecord::RecordNotUnique
+                if @retry == true
+                  msg = "An enrollment failed to save "
+                  msg += "(course: #{course_id}, section: #{section_id}, "
+                  msg += "user: #{user_id}, role: #{role_name}, error: " +
+                    msg += enrollment.errors.full_messages.join(",") + ")"
+                  @messages << msg
+                  @retry = false
+                else
+                  @enrollment_batch.unshift(enrollment)
+                  @retry = true
+                end
                 next
               end
             elsif @batch

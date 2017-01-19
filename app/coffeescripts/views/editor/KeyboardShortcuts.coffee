@@ -40,7 +40,7 @@ define [
       },
       {
         key: 'ALT+F8',
-        description: I18n.t('keybindings.open_dialog', 'Open this help dialog')
+        description: I18n.t('Open this keyboard shortcuts dialog')
       }
     ]
 
@@ -48,9 +48,9 @@ define [
 
     initialize: ->
       this.el.href = '#' # for keyboard accessibility
-      $(this.el).attr("title", I18n.t("editor_help_link", "Open Help Menu"))
+      $(this.el).attr("title", I18n.t('dialog_title', 'Keyboard Shortcuts'))
 
-      $('<i class="icon-info" />').appendTo(this.el)
+      $('<i class="icon-keyboard-shortcuts" aria-hidden="true" />').appendTo(this.el)
       $('<span class="screenreader-only" />')
         .text(I18n.t('dialog_title', 'Keyboard Shortcuts'))
         .appendTo(this.el)

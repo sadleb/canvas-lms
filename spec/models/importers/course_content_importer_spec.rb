@@ -34,6 +34,7 @@ describe Course do
         'file_path' => File.join(IMPORT_JSON_DIR, 'import_from_migration_small.zip')
       }
       migration = ContentMigration.create!(:context => @course)
+      migration.stubs(:canvas_import?).returns(true)
 
       params = {:copy => {
         :topics => {'1864019689002' => true, '1865116155002' => true},
@@ -111,6 +112,9 @@ describe Course do
       expect(assignment.description).to match(Regexp.new("USE THE TEXT BOX!  DO NOT ATTACH YOUR ASSIGNMENT!!"))
       # The old due date (Fri Mar 27 23:55:00 -0600 2009) should have been adjusted to new time frame
       expect(assignment.due_at.year).to eq 2011
+      # overrides
+      expect(assignment.assignment_overrides.count).to eq 1
+      expect(assignment.assignment_overrides.first.due_at.year).to eq 2011
 
       # discussion topic assignment
       assignment = @course.assignments.where(migration_id: "1865116155002").first

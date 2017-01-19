@@ -33,14 +33,15 @@ describe 'Stuff related to how we load stuff from CDN and use brandable_css' do
             data
           end
 
-          expect(fingerprints.length).to eq(4), 'We have 4 variants'
+          expect(fingerprints.length).to eq(2), 'We have 2 variants: new_styles_normal_contrast and new_styles_high_contrast'
           msg = 'make sure the conbined results match the result of all_fingerprints_for'
           expect(fingerprints).to eq(BrandableCSS.all_fingerprints_for(bundle_name).values), msg
 
-          msg = "all variants should outupt the same css if a bundle doesn't pull in
-                 the variables file. If it does, there should be some that are different"
-          unique_fingerprints = fingerprints.map{ |f| f[:combinedChecksum] }.uniq
-          expect(unique_fingerprints.length).to(includes_no_variables ? eq(1): (be > 1), msg)
+          if includes_no_variables
+            msg = "all variants should outupt the same css if a bundle doesn't pull in the variables file"
+            unique_fingerprints = fingerprints.map{ |f| f[:combinedChecksum] }.uniq
+            expect(unique_fingerprints.length).to eq(1), msg
+          end
         end
       end
     end
@@ -52,7 +53,7 @@ describe 'Stuff related to how we load stuff from CDN and use brandable_css' do
   end
 
   def check_css(bundle_name)
-    variant = ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? 'new_styles_normal_contrast' : 'legacy_normal_contrast'
+    variant = 'new_styles_normal_contrast'
     fingerprint = BrandableCSS.cache_for(bundle_name, variant)[:combinedChecksum]
     expect(fingerprint).to match(RE_SHORT_MD5)
     url = "#{EXAMPLE_CDN_HOST}/dist/brandable_css/#{variant}/#{bundle_name}-#{fingerprint}.css"

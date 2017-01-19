@@ -380,6 +380,7 @@ class ContextModulesApiController < ApplicationController
 
         opts[:assignment_visibilities] = AssignmentStudentVisibility.visible_assignment_ids_for_user(user_ids, @context.id)
         opts[:discussion_visibilities] = DiscussionTopic.visible_to_students_in_course_with_da(user_ids, @context.id).pluck(:id)
+        opts[:page_visibilities] = WikiPage.visible_to_students_in_course_with_da(user_ids, @context.id).pluck(:id)
         opts[:quiz_visibilities] = Quizzes::Quiz.visible_to_students_in_course_with_da(user_ids,@context.id).pluck(:quiz_id)
       end
 
@@ -592,6 +593,7 @@ class ContextModulesApiController < ApplicationController
         if value_to_boolean(params[:module][:published])
           @module.publish
           @module.publish_items!
+          publish_warning = @module.content_tags.any?(&:unpublished?)
         else
           @module.unpublish
         end
@@ -601,6 +603,7 @@ class ContextModulesApiController < ApplicationController
       if @module.update_attributes(module_parameters) && set_position
         json = module_json(@module, @current_user, session, nil)
         json['relock_warning'] = true if relock_warning || @module.relock_warning?
+        json['publish_warning'] = publish_warning.present?
         render :json => json
       else
         render :json => @module.errors, :status => :bad_request

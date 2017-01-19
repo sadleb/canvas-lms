@@ -56,7 +56,7 @@ Rails.configuration.after_initialize do
     with_each_shard_by_database(SummaryMessageConsolidator, :process)
   end
 
-  Delayed::Periodic.cron 'CrocodocDocument.update_process_states', '*/5 * * * *' do
+  Delayed::Periodic.cron 'CrocodocDocument.update_process_states', '*/10 * * * *' do
     if Canvas::Crocodoc.config
       with_each_shard_by_database(CrocodocDocument, :update_process_states)
     end
@@ -157,5 +157,9 @@ Rails.configuration.after_initialize do
                                   :refresh_providers,
                                   singleton: 'AccountAuthorizationConfig::SAML::InCommon.refresh_providers')
     end
+  end
+
+  Delayed::Periodic.cron 'EnrollmentState.recalculate_expired_states', '*/5 * * * *', :priority => Delayed::LOW_PRIORITY do
+    with_each_shard_by_database(EnrollmentState, :recalculate_expired_states)
   end
 end

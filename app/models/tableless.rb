@@ -22,13 +22,22 @@
 class Tableless < ActiveRecord::Base
   attr_accessible
 
-  def self.columns
-    @columns ||= [];
+  def self.columns(&block)
+    if block
+      @columns_block = block
+    else
+      if @columns.nil? && !@columns_block.nil?
+        @columns = []
+        @columns_block.call
+      end
+      @columns ||= []
+    end
   end
 
   def self.column(name, sql_type = nil, default = nil, null = true)
-    columns << ActiveRecord::ConnectionAdapters::Column.new(name.to_s, default,
-      sql_type.to_s, null)
+    args = [name.to_s, default, connection.lookup_cast_type(sql_type.to_s),
+            sql_type.to_s, null]
+    columns << ActiveRecord::ConnectionAdapters::Column.new(*args)
   end
 
   # Override the save method to prevent exceptions.

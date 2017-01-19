@@ -6,120 +6,118 @@ describe Assignment::SpeedGrader do
     student_in_course(active_all: true, user_name: "some user")
   end
 
-  context "create and publish a course with 2 students " do
-    context "create and publish a course with 2 students " do
-      let_once(:student_A) do
-        course_with_student(course: @course, user_name: "Student A")
-        @student
+  context "create and publish a course with 2 students" do
+    let_once(:student_A) do
+      course_with_student(course: @course, user_name: "Student A")
+      @student
+    end
+    let_once(:student_B) do
+      course_with_student(course: @course, user_name: "Student B")
+      @student
+    end
+    let_once(:teacher) do
+      course_with_teacher(course: @course, user_name: "an teacher")
+      @teacher
+    end
+
+    context "add students to the group" do
+      let(:category) { @course.group_categories.create! name: "Assignment Groups" }
+      let(:assignment) do
+        @course.assignments.create!(
+                                    group_category_id: category.id,
+                                    grade_group_students_individually: false,
+                                    submission_types: %w(text_entry)
+                                    )
       end
-      let_once(:student_B) do
-        course_with_student(course: @course, user_name: "Student B")
-        @student
+      let(:homework_params) do
+        {
+          submission_type: 'online_text_entry',
+          body: 'blah',
+          comment: 'a group comment during submission from student A',
+          group_comment: true
+        }.freeze
       end
-      let_once(:teacher) do
-        course_with_teacher(course: @course, user_name: "an teacher")
-        @teacher
+      let(:comment_two_to_group_params) do
+        {
+          comment: 'a group comment from student A',
+          user_id:  student_A.id,
+          group_comment: true
+        }.freeze
+      end
+      let(:comment_three_to_group_params) do
+        {
+          comment: 'a group comment from student B',
+          user_id:  student_B.id,
+          group_comment: true
+        }.freeze
+      end
+      let(:comment_four_private_params) do
+        {
+          comment: 'a private comment from student A',
+          user_id:  student_A.id,
+        }.freeze
+      end
+      let(:comment_five_private_params) do
+        {
+          comment: 'a private comment from student B',
+          user_id:  student_B.id,
+        }.freeze
+      end
+      let(:comment_six_to_group_params) do
+        {
+          comment: 'a group comment from teacher',
+          user_id:  teacher.id,
+          group_comment: true
+        }.freeze
+      end
+      let(:comment_seven_private_params) do
+        {
+          comment: 'a private comment from teacher',
+          user_id:  teacher.id,
+        }.freeze
       end
 
-      context "add students to the group" do
-        let(:category) { @course.group_categories.create! name: "Assignment Groups" }
-        let(:assignment) do
-          @course.assignments.create!(
-            group_category_id: category.id,
-            grade_group_students_individually: false,
-            submission_types: %w(text_entry)
-          )
-        end
-        let(:homework_params) do
-          {
-            submission_type: 'online_text_entry',
-            body: 'blah',
-            comment: 'a group comment during submission from student A',
-            group_comment: true
-          }.freeze
-        end
-        let(:comment_two_to_group_params) do
-          {
-            comment: 'a group comment from student A',
-            user_id:  student_A.id,
-            group_comment: true
-          }.freeze
-        end
-        let(:comment_three_to_group_params) do
-          {
-            comment: 'a group comment from student B',
-            user_id:  student_B.id,
-            group_comment: true
-          }.freeze
-        end
-        let(:comment_four_private_params) do
-          {
-            comment: 'a private comment from student A',
-            user_id:  student_A.id,
-          }.freeze
-        end
-        let(:comment_five_private_params) do
-          {
-            comment: 'a private comment from student B',
-            user_id:  student_B.id,
-          }.freeze
-        end
-        let(:comment_six_to_group_params) do
-          {
-            comment: 'a group comment from teacher',
-            user_id:  teacher.id,
-            group_comment: true
-          }.freeze
-        end
-        let(:comment_seven_private_params) do
-          {
-            comment: 'a private comment from teacher',
-            user_id:  teacher.id,
-          }.freeze
-        end
+      before do
+        group = category.groups.create!(name: 'a group', context: @course)
+        group.add_user(student_A)
+        group.add_user(student_B)
+        assignment.submit_homework(student_A, homework_params.dup)
+        assignment.update_submission(student_A, comment_two_to_group_params.dup)
+        assignment.update_submission(student_A, comment_three_to_group_params.dup)
+        assignment.update_submission(student_A, comment_four_private_params.dup)
+        assignment.update_submission(student_A, comment_five_private_params.dup)
+        assignment.update_submission(student_A, comment_six_to_group_params.dup)
+        assignment.update_submission(student_A, comment_seven_private_params.dup)
+      end
 
-        before do
-          group = category.groups.create!(name: 'a group', context: @course)
-          group.add_user(student_A)
-          group.add_user(student_B)
-          assignment.submit_homework(student_A, homework_params.dup)
-          assignment.update_submission(student_A, comment_two_to_group_params.dup)
-          assignment.update_submission(student_A, comment_three_to_group_params.dup)
-          assignment.update_submission(student_A, comment_four_private_params.dup)
-          assignment.update_submission(student_A, comment_five_private_params.dup)
-          assignment.update_submission(student_A, comment_six_to_group_params.dup)
-          assignment.update_submission(student_A, comment_seven_private_params.dup)
+      it "only shows group comments" do
+        json = Assignment::SpeedGrader.new(assignment, teacher).json
+        comments = json.fetch(:submissions).first.fetch(:submission_comments).map do |comment|
+          comment.slice(:author_id, :comment)
         end
-
-        it "only shows group comments" do
-          json = Assignment::SpeedGrader.new(assignment, teacher).json
-          comments = json.fetch(:submissions).first.fetch(:submission_comments).map do |comment|
-            comment.slice(:author_id, :comment)
-          end
-          expect(comments).to include({
-            "author_id" => student_A.id,
-            "comment" => homework_params.fetch(:comment)
-          },{
-            "author_id" => comment_two_to_group_params.fetch(:user_id),
-            "comment" => comment_two_to_group_params.fetch(:comment)
-          },{
-            "author_id" => comment_three_to_group_params.fetch(:user_id),
-            "comment" => comment_three_to_group_params.fetch(:comment)
-          },{
-            "author_id" => comment_six_to_group_params.fetch(:user_id),
-            "comment" => comment_six_to_group_params.fetch(:comment)
-          })
-          expect(comments).not_to include({
-            "author_id" => comment_four_private_params.fetch(:user_id),
-            "comment" => comment_four_private_params.fetch(:comment)
-          },{
-            "author_id" => comment_five_private_params.fetch(:user_id),
-            "comment" => comment_five_private_params.fetch(:comment)
-          },{
-            "author_id" => comment_seven_private_params.fetch(:user_id),
-            "comment" => comment_seven_private_params.fetch(:comment)
-          })
-        end
+        expect(comments).to include({
+          "author_id" => student_A.id.to_s,
+          "comment" => homework_params.fetch(:comment)
+        },{
+          "author_id" => comment_two_to_group_params.fetch(:user_id).to_s,
+          "comment" => comment_two_to_group_params.fetch(:comment)
+        },{
+          "author_id" => comment_three_to_group_params.fetch(:user_id).to_s,
+          "comment" => comment_three_to_group_params.fetch(:comment)
+        },{
+          "author_id" => comment_six_to_group_params.fetch(:user_id).to_s,
+          "comment" => comment_six_to_group_params.fetch(:comment)
+        })
+        expect(comments).not_to include({
+          "author_id" => comment_four_private_params.fetch(:user_id).to_s,
+          "comment" => comment_four_private_params.fetch(:comment)
+        },{
+          "author_id" => comment_five_private_params.fetch(:user_id).to_s,
+          "comment" => comment_five_private_params.fetch(:comment)
+        },{
+          "author_id" => comment_seven_private_params.fetch(:user_id).to_s,
+          "comment" => comment_seven_private_params.fetch(:comment)
+      })
       end
     end
   end
@@ -156,10 +154,10 @@ describe Assignment::SpeedGrader do
     it "includes only students and sections with overrides for differentiated assignments" do
       json = Assignment::SpeedGrader.new(@assignment, @teacher).json
 
-      expect(json[:context][:students].map{|s| s[:id]}.include?(@student1.id)).to be_truthy
-      expect(json[:context][:students].map{|s| s[:id]}.include?(@student2.id)).to be_falsey
-      expect(json[:context][:active_course_sections].map{|cs| cs[:id]}.include?(@section1.id)).to be_truthy
-      expect(json[:context][:active_course_sections].map{|cs| cs[:id]}.include?(@section2.id)).to be_falsey
+      expect(json[:context][:students].map{|s| s[:id]}.include?(@student1.id.to_s)).to be_truthy
+      expect(json[:context][:students].map{|s| s[:id]}.include?(@student2.id.to_s)).to be_falsey
+      expect(json[:context][:active_course_sections].map{|cs| cs[:id]}.include?(@section1.id.to_s)).to be_truthy
+      expect(json[:context][:active_course_sections].map{|cs| cs[:id]}.include?(@section2.id.to_s)).to be_falsey
     end
 
     it "includes all students when is only_visible_to_overrides false" do
@@ -167,10 +165,10 @@ describe Assignment::SpeedGrader do
       @assignment.save!
       json = Assignment::SpeedGrader.new(@assignment, @teacher).json
 
-      expect(json[:context][:students].map{|s| s[:id]}.include?(@student1.id)).to be_truthy
-      expect(json[:context][:students].map{|s| s[:id]}.include?(@student2.id)).to be_truthy
-      expect(json[:context][:active_course_sections].map{|cs| cs[:id]}.include?(@section1.id)).to be_truthy
-      expect(json[:context][:active_course_sections].map{|cs| cs[:id]}.include?(@section2.id)).to be_truthy
+      expect(json[:context][:students].map{|s| s[:id]}.include?(@student1.id.to_s)).to be_truthy
+      expect(json[:context][:students].map{|s| s[:id]}.include?(@student2.id.to_s)).to be_truthy
+      expect(json[:context][:active_course_sections].map{|cs| cs[:id]}.include?(@section1.id.to_s)).to be_truthy
+      expect(json[:context][:active_course_sections].map{|cs| cs[:id]}.include?(@section2.id.to_s)).to be_truthy
     end
   end
 
@@ -205,7 +203,7 @@ describe Assignment::SpeedGrader do
     # Test
     json = Assignment::SpeedGrader.new(assignment, @teacher).json
     json[:submissions].each do |submission|
-      user = [student_1, student_2].detect { |s| s.id == submission[:user_id] }
+      user = [student_1, student_2].detect { |s| s.id.to_s == submission[:user_id] }
       expect(submission[:late]).to eq user.submissions.first.late?
     end
   end
@@ -219,12 +217,20 @@ describe Assignment::SpeedGrader do
     expect(attachment_json['view_inline_ping_url']).to match %r{/users/#{@student.id}/files/#{attachment.id}/inline_view\z}
   end
 
+  it "includes lti launch url in submission history" do
+    setup_assignment_without_submission
+    @assignment.submit_homework(@user, :submission_type => 'basic_lti_launch', :url => 'http://www.example.com')
+    json = Assignment::SpeedGrader.new(@assignment, @teacher).json
+    url_json = json['submissions'][0]['submission_history'][0]['submission']['external_tool_url']
+    expect(url_json).to eql('http://www.example.com')
+  end
+
   context "group assignments" do
     before :once do
       course_with_teacher(active_all: true)
       @gc = @course.group_categories.create! name: "Assignment Groups"
       @groups = 2.times.map { |i| @gc.groups.create! name: "Group #{i}", context: @course }
-      students = create_users_in_course(@course, 4, return_type: :record)
+      students = create_users_in_course(@course, 6, return_type: :record)
       students.each_with_index { |s, i| @groups[i % @groups.size].add_user(s) }
       @assignment = @course.assignments.create!(
         group_category_id: @gc.id,
@@ -243,7 +249,7 @@ describe Assignment::SpeedGrader do
       json = Assignment::SpeedGrader.new(@assignment, @teacher).json
       @groups.each do |group|
         j = json["context"]["students"].find { |g| g["name"] == group.name }
-        expect(group.users.map(&:id)).to include j["id"]
+        expect(group.users.map { |u| u.id.to_s }).to include j["id"]
       end
       expect(json["GROUP_GRADING_MODE"]).to be_truthy
     end
@@ -251,7 +257,7 @@ describe Assignment::SpeedGrader do
     it 'chooses the student with turnitin data to represent' do
       turnitin_submissions = @groups.map do |group|
         rep = group.users.shuffle.first
-        turnitin_submission, *others = @assignment.grade_student(rep, grade: 10)
+        turnitin_submission = @assignment.grade_student(rep, grade: 10, grader: @teacher)[0]
         turnitin_submission.update_attribute :turnitin_data, {blah: 1}
         turnitin_submission
       end
@@ -261,12 +267,12 @@ describe Assignment::SpeedGrader do
 
       expect(json["submissions"].map { |s|
         s["id"]
-      }.sort).to eq turnitin_submissions.map(&:id).sort
+      }.sort).to eq turnitin_submissions.map { |t| t.id.to_s }.sort
     end
 
     it 'prefers people with submissions' do
       g1, _ = @groups
-      @assignment.grade_student(g1.users.first, score: 10)
+      @assignment.grade_student(g1.users.first, score: 10, grader: @teacher)
       g1rep = g1.users.shuffle.first
       s = @assignment.submission_for_student(g1rep)
       s.update_attribute :submission_type, 'online_upload'
@@ -281,7 +287,7 @@ describe Assignment::SpeedGrader do
         body: 'hi'
       })
       others.each { |u|
-        @assignment.grade_student(u, excuse: true)
+        @assignment.grade_student(u, excuse: true, grader: @teacher)
       }
       expect(@assignment.representatives(@teacher)).to include g1rep
     end
@@ -302,6 +308,69 @@ describe Assignment::SpeedGrader do
       rep_names = @assignment.representatives(@teacher).map(&:name)
       expect(rep_names).not_to include "DELETE ME"
     end
+
+    it 'prefers active users over other workflow states' do
+      group = @groups.first
+      enrollments = group.all_real_student_enrollments
+      enrollments[0].deactivate
+      enrollments[1].conclude
+
+      reps = @assignment.representatives(@teacher, includes: [:inactive, :completed])
+      user = reps.select { |u| u.name == group.name }.first
+      expect(user.id).to eql(enrollments[2].user_id)
+    end
+
+    it 'prefers inactive users when no active users are present' do
+      group = @groups.first
+      enrollments = group.all_real_student_enrollments
+      enrollments[0].conclude
+      enrollments[1].deactivate
+      enrollments[2].conclude
+
+      reps = @assignment.representatives(@teacher, includes: [:inactive, :completed])
+      user = reps.select { |u| u.name == group.name }.first
+      expect(user.id).to eql(enrollments[1].user_id)
+    end
+
+    it 'includes concluded students when included' do
+      group = @groups.first
+      enrollments = group.all_real_student_enrollments
+      enrollments.each(&:conclude)
+
+      reps = @assignment.representatives(@teacher, includes: [:completed])
+      user = reps.select { |u| u.name == group.name }.first
+      expect(user.id).to eql(enrollments[0].user_id)
+    end
+
+    it 'does not include concluded students when included' do
+      group = @groups.first
+      enrollments = group.all_real_student_enrollments
+      enrollments.each(&:conclude)
+
+      reps = @assignment.representatives(@teacher, includes: [])
+      user = reps.select { |u| u.name == group.name }.first
+      expect(user).to be_nil
+    end
+
+    it 'includes inactive students when included' do
+      group = @groups.first
+      enrollments = group.all_real_student_enrollments
+      enrollments.each(&:deactivate)
+
+      reps = @assignment.representatives(@teacher, includes: [:inactive])
+      user = reps.select { |u| u.name == group.name }.first
+      expect(user.id).to eql(enrollments[0].user_id)
+    end
+
+    it 'does not include inactive students when included' do
+      group = @groups.first
+      enrollments = group.all_real_student_enrollments
+      enrollments.each(&:deactivate)
+
+      reps = @assignment.representatives(@teacher, includes: [])
+      user = reps.select { |u| u.name == group.name }.first
+      expect(user).to be_nil
+    end
   end
 
   context "quizzes" do
@@ -312,7 +381,7 @@ describe Assignment::SpeedGrader do
       quiz.offer
 
       assignment = quiz.assignment
-      assignment.grade_student(@student, grade: 1)
+      assignment.grade_student(@student, grade: 1, grader: @teacher)
       json = Assignment::SpeedGrader.new(assignment, @teacher).json
       expect(json[:submissions].all? { |s|
         s.has_key? 'submission_history'
@@ -343,6 +412,18 @@ describe Assignment::SpeedGrader do
         @quiz.due_at = 1.day.ago
         @quiz.save!
 
+        json = Assignment::SpeedGrader.new(@assignment, @teacher).json
+        expect(json[:submissions].first['submission_history'].first[:submission]['late']).to be_truthy
+      end
+
+      it "returns quiz lateness correctly with overrides" do
+        o = @quiz.assignment_overrides.build
+        o.due_at = 1.day.ago
+        o.due_at_overridden = true
+        o.set = @course.default_section
+        o.save!
+
+        @assignment.reload
         json = Assignment::SpeedGrader.new(@assignment, @teacher).json
         expect(json[:submissions].first['submission_history'].first[:submission]['late']).to be_truthy
       end
@@ -428,7 +509,7 @@ describe Assignment::SpeedGrader do
       it "only includes the grader's provisional rubric assessments" do
         ras = @json['context']['students'][0]['rubric_assessments']
         expect(ras.count).to eq 1
-        expect(ras[0]['assessor_id']).to eq @ta.id
+        expect(ras[0]['assessor_id']).to eq @ta.id.to_s
       end
 
       it "determines whether the student needs a provisional grade" do
@@ -450,7 +531,7 @@ describe Assignment::SpeedGrader do
       it "includes the moderator's provisional rubric assessments" do
         ras = @json['context']['students'][0]['rubric_assessments']
         expect(ras.count).to eq 1
-        expect(ras[0]['assessor_id']).to eq @teacher.id
+        expect(ras[0]['assessor_id']).to eq @teacher.id.to_s
       end
 
       it "lists all provisional grades" do
@@ -458,8 +539,8 @@ describe Assignment::SpeedGrader do
         expect(pgs.size).to eq 2
         expect(pgs.map { |pg| [pg['score'], pg['scorer_id'], pg['submission_comments'].map{|c| c['comment']}.sort] }).to match_array(
           [
-            [2.0, @teacher.id, ["provisional comment", "real comment"]],
-            [3.0, @ta.id, ["other provisional comment", "real comment"]]
+            [2.0, @teacher.id.to_s, ["provisional comment", "real comment"]],
+            [3.0, @ta.id.to_s, ["other provisional comment", "real comment"]]
           ]
         )
       end
@@ -467,13 +548,86 @@ describe Assignment::SpeedGrader do
       it "includes all the other provisional rubric assessments in their respective grades" do
         ta_pras = @json['submissions'][0]['provisional_grades'][1]['rubric_assessments']
         expect(ta_pras.count).to eq 1
-        expect(ta_pras[0]['assessor_id']).to eq @ta.id
+        expect(ta_pras[0]['assessor_id']).to eq @ta.id.to_s
       end
 
       it "includes whether the provisional grade is selected" do
         expect(@json['submissions'][0]['provisional_grades'][0]['selected']).to be_truthy
         expect(@json['submissions'][0]['provisional_grades'][1]['selected']).to be_falsey
       end
+    end
+  end
+
+  context "honoring gradebook preferences" do
+    let_once(:test_course) do
+      test_course = course(active_course: true)
+      test_course.enroll_teacher(teacher, enrollment_state: 'active')
+      test_course.enroll_student(active_student, enrollment_state: 'active')
+      test_course.enroll_student(inactive_student, enrollment_state: 'inactive')
+      test_course.enroll_student(concluded_student, enrollment_state: 'completed')
+      test_course
+    end
+
+    let_once(:teacher) { User.create }
+    let_once(:active_student) { User.create }
+    let_once(:inactive_student) { User.create }
+    let_once(:concluded_student) { User.create }
+
+    let(:gradebook_settings) do
+      { test_course.id =>
+        {
+          'show_inactive_enrollments' => 'false',
+          'show_concluded_enrollments' => 'false'
+        }
+      }
+    end
+
+    let_once(:assignment) do
+      Assignment.create!(title: "title", context: test_course)
+    end
+
+    it "returns active students and enrollments when inactive and concluded settings are false" do
+      teacher.preferences[:gradebook_settings] = gradebook_settings
+      json = Assignment::SpeedGrader.new(assignment, teacher).json
+
+      students = json['context']['students'].map { |s| s['id'] }
+      expect(students).to include(active_student.id.to_s)
+    end
+
+    it "returns active and inactive students and enrollments when inactive enromments is true" do
+      gradebook_settings[test_course.id]['show_inactive_enrollments'] = 'true'
+      teacher.preferences[:gradebook_settings] = gradebook_settings
+      json = Assignment::SpeedGrader.new(assignment, teacher).json
+
+      students = json['context']['students'].map { |s| s['id'] }
+      expect(students).to include(active_student.id.to_s, inactive_student.id.to_s)
+    end
+
+    it "returns active and concluded students and enrollments when concluded is true" do
+      gradebook_settings[test_course.id]['show_concluded_enrollments'] = 'true'
+      teacher.preferences[:gradebook_settings] = gradebook_settings
+      json = Assignment::SpeedGrader.new(assignment, teacher).json
+
+      students = json['context']['students'].map { |s| s['id'] }
+      expect(students).to include(active_student.id.to_s, concluded_student.id.to_s)
+    end
+
+    it "returns active, inactive, and concluded students and enrollments when both settings are true" do
+      gradebook_settings[test_course.id]['show_inactive_enrollments'] = 'true'
+      gradebook_settings[test_course.id]['show_concluded_enrollments'] = 'true'
+      teacher.preferences[:gradebook_settings] = gradebook_settings
+      json = Assignment::SpeedGrader.new(assignment, teacher).json
+
+      students = json['context']['students'].map { |s| s['id'] }
+      expect(students).to include(active_student.id.to_s, inactive_student.id.to_s,
+                                  concluded_student.id.to_s)
+    end
+
+    it "returns concluded students if the course is concluded" do
+      test_course.complete
+      json = Assignment::SpeedGrader.new(assignment, teacher).json
+      students = json['context']['students'].map { |s| s['id'] }
+      expect(students).to include(active_student.id.to_s, concluded_student.id.to_s)
     end
   end
 

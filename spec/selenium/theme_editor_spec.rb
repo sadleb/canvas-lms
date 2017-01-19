@@ -8,7 +8,7 @@ describe 'Theme Editor' do
   include ThemeEditorCommon
 
   before(:each) do
-    Account.default.enable_feature!(:use_new_styles)
+    make_full_screen
     course_with_admin_logged_in
   end
 
@@ -50,7 +50,31 @@ describe 'Theme Editor' do
     fj('.Theme__header button:contains("Exit")').click
     driver.switch_to.alert.accept
     # validations
-    assert_flash_notice_message /Theme editor changes have been cancelled/
+    assert_flash_notice_message(/Theme editor changes have been cancelled/)
+    expect(driver.current_url).to end_with("/accounts/#{Account.default.id}/brand_configs")
+    expect(f('#left-side #section-tabs .brand_configs').text).to eq 'Themes'
+  end
+
+  it 'should close after preview (no changes saved)', priority: "1", test_id: 239984 do
+    # since npm modules arent installed in worker nodes this needs to get installed to not fail on
+    # those nodes
+    BrandConfig.any_instance.stubs(:compile_css!).returns(true)
+    open_theme_editor(Account.default.id)
+
+    # verifies theme editor is open
+    expect(driver.title).to include 'Theme Editor'
+    f('.Theme__editor-color-block_input-text').send_keys('#dc6969')
+
+    expect_new_page_load do
+      preview_your_changes
+      expect(fj('.ReactModal__Content:contains("Generating preview")')).to be_displayed
+      run_jobs
+    end
+
+    exit_btn = fj('.Theme__header button:contains("Exit")')
+    exit_btn.click
+    driver.switch_to.alert.accept
+    assert_flash_notice_message(/Theme editor changes have been cancelled/)
     expect(driver.current_url).to end_with("/accounts/#{Account.default.id}/brand_configs")
     expect(f('#left-side #section-tabs .brand_configs').text).to eq 'Themes'
   end
@@ -68,6 +92,7 @@ describe 'Theme Editor' do
 
   it 'should accept valid Hex IDs', priority: "1", test_id: 239986 do
     open_theme_editor(Account.default.id)
+    click_global_branding
 
     # verifies theme editor is open
     expect(driver.title).to include 'Theme Editor'
@@ -80,6 +105,7 @@ describe 'Theme Editor' do
 
   it 'should accept valid shortened Hex IDs', priority: "2", test_id: 240455 do
     open_theme_editor(Account.default.id)
+    click_global_branding
 
     # verifies theme editor is open
     expect(driver.title).to include 'Theme Editor'
@@ -91,6 +117,7 @@ describe 'Theme Editor' do
 
   it 'should accept valid color names', priority: "2", test_id: 240233 do
     open_theme_editor(Account.default.id)
+    click_global_branding
 
     # verifies theme editor is open
     expect(driver.title).to include 'Theme Editor'
@@ -102,6 +129,7 @@ describe 'Theme Editor' do
 
   it 'should not accept invalid hex IDs', priority: "1", test_id: 239987 do
     open_theme_editor(Account.default.id)
+    click_global_branding
 
     # verifies theme editor is open
     expect(driver.title).to include 'Theme Editor'
@@ -137,19 +165,5 @@ describe 'Theme Editor' do
 
     # expect all 15 text fields to have working validation
     expect(all_warning_messages.length).to eq 15
-  end
-
-  it 'should have color squares that match the hex value', priority: "2", test_id: 241993 do
-    open_theme_editor(Account.default.id)
-    create_theme
-
-    click_global_branding
-    verify_colors_for_arrays(all_global_branding, all_global_branding('color_box'))
-
-    click_global_navigation
-    verify_colors_for_arrays(all_global_navigation, all_global_navigation('color_box'))
-
-    click_watermarks_and_other_images
-    verify_colors_for_arrays(all_watermarks, all_watermarks('color_box'))
   end
 end

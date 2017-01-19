@@ -275,6 +275,14 @@ describe FilesController do
         expect(json_parse['attachment']).to_not be_nil
         expect(json_parse['attachment']['md5']).to be_nil
       end
+
+      it "should not redirect to terms-acceptance page" do
+        user_session(@teacher)
+        session[:require_terms] = true
+        verifier = Attachments::Verification.new(@file).verifier_for_user(@teacher)
+        get 'show', :course_id => @course.id, :id => @file.id, :verifier => verifier, :format => 'json'
+        expect(response).to be_success
+      end
     end
 
     it "should assign variables" do
@@ -543,46 +551,60 @@ describe FilesController do
       file_in_a_module
     end
 
-    before(:each) do
-      user_session(@student)
-    end
+    context "as student" do
+      before(:each) do
+        user_session(@student)
+      end
 
-    it "should find files by relative path" do
-      get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path
-      expect(response).to be_redirect
-      get "show_relative", :course_id => @course.id, :file_path => @file.full_path
-      expect(response).to be_redirect
-
-      def test_path(path)
-        file_with_path(path)
+      it "should find files by relative path" do
         get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path
         expect(response).to be_redirect
         get "show_relative", :course_id => @course.id, :file_path => @file.full_path
         expect(response).to be_redirect
+
+        def test_path(path)
+          file_with_path(path)
+          get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path
+          expect(response).to be_redirect
+          get "show_relative", :course_id => @course.id, :file_path => @file.full_path
+          expect(response).to be_redirect
+        end
+
+        test_path("course files/unfiled/test1.txt")
+        test_path("course files/blah")
+        test_path("course files/a/b/c%20dude/d/e/f.gif")
       end
 
-      test_path("course files/unfiled/test1.txt")
-      test_path("course files/blah")
-      test_path("course files/a/b/c%20dude/d/e/f.gif")
+      it "should render unauthorized access page if the file path doesn't match" do
+        get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path+"blah"
+        expect(response).to render_template("shared/errors/file_not_found")
+        get "show_relative", :file_id => @file.id, :course_id => @course.id, :file_path => @file.full_display_path+"blah"
+        expect(response).to render_template("shared/errors/file_not_found")
+      end
+
+      it "should render file_not_found even if the format is non-html" do
+        get "show_relative", :file_id => @file.id, :course_id => @course.id, :file_path => @file.full_display_path+".css", :format => 'css'
+        expect(response).to render_template("shared/errors/file_not_found")
+      end
+
+      it "should ignore bad file_ids" do
+        get "show_relative", :file_id => @file.id + 1, :course_id => @course.id, :file_path => @file.full_display_path
+        expect(response).to be_redirect
+        get "show_relative", :file_id => "blah", :course_id => @course.id, :file_path => @file.full_display_path
+        expect(response).to be_redirect
+      end
     end
 
-    it "should render unauthorized access page if the file path doesn't match" do
-      get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path+"blah"
-      expect(response).to render_template("shared/errors/file_not_found")
-      get "show_relative", :file_id => @file.id, :course_id => @course.id, :file_path => @file.full_display_path+"blah"
-      expect(response).to render_template("shared/errors/file_not_found")
-    end
+    context "unauthenticated user" do
+      it "renders unauthorized if the file exists" do
+        get "show_relative", :course_id => @course.id, :file_path => @file.full_display_path
+        assert_unauthorized
+      end
 
-    it "should render file_not_found even if the format is non-html" do
-      get "show_relative", :file_id => @file.id, :course_id => @course.id, :file_path => @file.full_display_path+".css", :format => 'css'
-      expect(response).to render_template("shared/errors/file_not_found")
-    end
-
-    it "should ignore bad file_ids" do
-      get "show_relative", :file_id => @file.id + 1, :course_id => @course.id, :file_path => @file.full_display_path
-      expect(response).to be_redirect
-      get "show_relative", :file_id => "blah", :course_id => @course.id, :file_path => @file.full_display_path
-      expect(response).to be_redirect
+      it "renders unauthorized if the file doesn't exist" do
+        get "show_relative", :course_id => @course.id, :file_path => "course files/nope"
+        assert_unauthorized
+      end
     end
   end
 
@@ -614,6 +636,26 @@ describe FilesController do
       post 'create', :user_id => @teacher.id, :format => :json, :attachment => {:display_name => "bob", :uploaded_data => io}
       expect(response.status).to eq 400
       expect(response.body).to include 'quota exceeded'
+    end
+
+    it "does not check quota for local-storage submission uploads" do
+      local_storage!
+      user_session(@student)
+      Setting.set('user_default_quota', 7)
+      file = @student.attachments.build
+      file.file_state = 'deleted'
+      file.workflow_state = 'unattached'
+      file.save!
+      post 'create', :user_id => @student.id,
+           :format => 'json',
+           :check_quota_after => '0',
+           :filename => 'submission.doc',
+           :attachment => {
+             :unattached_attachment_id => file.id,
+             :uploaded_data => io
+           }
+      expect(response).to be_success
+      expect(file.reload).to be_available
     end
 
     it "refuses to create a file in a submissions folder" do
@@ -768,8 +810,11 @@ describe FilesController do
       end
 
       before :once do
-        user_session(@student)
         submit_file
+      end
+
+      before :each do
+        user_session(@student)
       end
 
       it "should not delete" do

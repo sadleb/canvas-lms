@@ -70,6 +70,30 @@ Note: All Canvas ids are "global" identifiers, returned as strings.
 Note that the actual bodies of events may include more fields than
 what's described in this document. Those fields are subject to change.
 
+
+#### `course_created`
+
+| Field | Description |
+| ----- | ----------- |
+| `course_id` | The Canvas id of the created course. |
+| `account_id` | The Account id of the created course. |
+| `name` | The name the created course. |
+| `created_at` | The time at which this course was created. |
+| `updated_at` | The time at which this course was last modified in any way. |
+| `workflow_state` | The state of the course. |
+
+#### `course_updated`
+
+| Field | Description |
+| ----- | ----------- |
+| `course_id` | The Canvas id of the updated course. |
+| `account_id` | The Account id of the created course. |
+| `name` | The name the updated course. |
+| `created_at` | The time at which this course was created. |
+| `updated_at` | The time at which this course was last modified in any way. |
+| `workflow_state` | The state of the course. |
+
+
 #### `syllabus_updated`
 
 | Field | Description |
@@ -105,7 +129,7 @@ what's described in this document. Those fields are subject to change.
 | Field | Description |
 | ----- | ----------- |
 | `group_category_id` | The Canvas id of the newly created group category. |
-| `group_category_name` | The name of the newly created group |
+| `group_category_name` | The name of the newly created group. |
 
 
 #### `group_created`
@@ -157,12 +181,12 @@ No extra data.
 #### `grade_changed`
 
 `grade_change` events are posted every time a grade changes. These can
-happen either as the result of a teacher changing a grade in the
-gradebook or speedgrader, or with a quiz being automatically scored. In
-the case of a quiz being scored, the `grade_change` event will be fired
-as the result of a student turning in a quiz, and the `user_id` in the
-message attributes will be of the student. In these cases, `grader_id`
-should be null in the body.
+happen as the result of a teacher changing a grade in the gradebook or
+speedgrader, a quiz being automatically scored, or changing an assignment's
+points possible or grade type. In the case of a quiz being scored, the
+`grade_change` event will be fired as the result of a student turning in a
+quiz, and the `user_id` in the message attributes will be of the student. In
+these cases, `grader_id` should be null in the body.
 
 | Field | Description |
 | ----- | ----------- |
@@ -170,6 +194,10 @@ should be null in the body.
 | `assignment_id` | The Canvas id of the assignment associated with the submission. |
 | `grade` | The new grade. |
 | `old_grade` | The previous grade, if there was one. |
+| `score` | The new score. |
+| `old_score` | The previous score. |
+| `points_possible` | The maximum points possible for the submission's assignment. |
+| `old_points_possible` | The maximum points possible for the previous grade. |
 | `grader_id` | The Canvas id of the user making the grade change. Null if this was the result of automatic grading. |
 | `user_id` | The Canvas id of the user associated with the submission with the change. |
 
@@ -262,10 +290,11 @@ by `asset_type` and `asset_id`.
 | `updated_at` | The time at which this assignment was last modified in any way |
 | `score` | The raw score |
 | `grade` | The grade for the submission, translated into the assignment grading scheme (so a letter grade, for example)|
-| `submission_type` | The types of submission ex: ('online_text_entry'|'online_url'|'online_upload'|'media_recording') |
-| `body` | The content of the submission, if it was submitted directly in a text field.  (possibly truncated)|
+| `submission_type` | The types of submission ex: ('online_text_entry'\|'online_url'\|'online_upload'\|'media_recording') |
+| `body` | The content of the submission, if it was submitted directly in a text field. (possibly truncated) |
 | `url` | The URL of the submission (for 'online_url' submissions) |
-| `attempt` | This is the submission attempt number.|
+| `attempt` | This is the submission attempt number. |
+
 
 #### `submission_updated`
 
@@ -278,7 +307,164 @@ by `asset_type` and `asset_id`.
 | `updated_at` | The time at which this assignment was last modified in any way |
 | `score` | The raw score |
 | `grade` | The grade for the submission, translated into the assignment grading scheme (so a letter grade, for example)|
-| `submission_type` | The types of submission ex: ('online_text_entry'|'online_url'|'online_upload'|'media_recording') |
+| `submission_type` | The types of submission ex: ('online_text_entry'\|'online_url'\|'online_upload'\|'media_recording') |
 | `body` | The content of the submission, if it was submitted directly in a text field. (possibly truncated) |
 | `url` | The URL of the submission (for 'online_url' submissions) |
-| `attempt` | This is the submission attempt number.|
+| `attempt` | This is the submission attempt number. |
+
+
+#### `user_created`
+
+| Field | Description |
+| ----- | ----------- |
+| `user_id` | The Canvas id of user. |
+| `name` | Name of user. |
+| `short_name` | Short name of user. |
+| `workflow_state` | State of the user. |
+| `created_at` | The time at which this user was created. |
+| `updated_at` | The time at which this user was last modified in any way. |
+
+
+#### `user_updated`
+
+| Field | Description |
+| ----- | ----------- |
+| `user_id` | The Canvas id of user. |
+| `name` | Name of user. |
+| `short_name` | Short name of user. |
+| `workflow_state` | State of the user. |
+| `created_at` | The time at which this user was created. |
+| `updated_at` | The time at which this user was last modified in any way. |
+
+
+#### `enrollment_created`
+
+| Field | Description |
+| ----- | ----------- |
+| `enrollment_id` | The Canvas id of the new enrollment. |
+| `course_id` | The Canvas id of the course for this enrollment. |
+| `user_id` | The Canvas id of the user for this enrollment. |
+| `user_name` | The user's name. |
+| `type` | The type of enrollment; e.g. 'StudentEnrollment', 'TeacherEnrollment', etc. |
+| `created_at` | The time at which this enrollment was created. |
+| `updated_at` | The time at which this enrollment was last modified in any way. |
+| `limit_privileges_to_course_section ` | Whether students can only talk to students withing their course section. |
+| `course_section_id ` | The id of the section of the course for the new enrollment. |
+| `workflow_state` | The state of the enrollment. |
+
+#### `enrollment_updated`
+
+| Field | Description |
+| ----- | ----------- |
+| `enrollment_id` | The Canvas id of the new enrollment. |
+| `course_id` | The Canvas id of the course for this enrollment. |
+| `user_id` | The Canvas id of the user for this enrollment. |
+| `user_name` | The user's name. |
+| `type` | The type of enrollment; e.g. 'StudentEnrollment', 'TeacherEnrollment', etc. |
+| `created_at` | The time at which this enrollment was created. |
+| `updated_at` | The time at which this enrollment was last modified in any way. |
+| `limit_privileges_to_course_section ` | Whether students can only talk to students withing their course section. |
+| `course_section_id ` | The id of the section of the course for the new enrollment. |
+| `workflow_state` | The state of the enrollment. |
+
+#### `enrollment_state_created`
+
+| Field | Description |
+| ----- | ----------- |
+| `enrollment_id` | The Canvas id of the new enrollment. |
+| `state` | The state of the enrollment. |
+| `state_started_at` | The time when this enrollment state starts. |
+| `state_is_current` | If this enrollment_state is uptodate |
+| `state_valid_until` | The time at which this enrollment is no longer valid. |
+| `restricted_access` | True if this enrollment_state is restricted. |
+| `access_is_current ` | If this enrollment_state access is upto date. |
+| `state_invalidated_at ` | Time enrollment_state was invalidated. |
+| `state_recalculated_at` | Time enrollment_state was created. |
+| `access_invalidated_at` | Time enrollment_state access was invalidated. |
+| `access_recalculated_at` | Time enrollment_state access was created. |
+
+#### `enrollment_state_updated`
+
+| Field | Description |
+| ----- | ----------- |
+| `enrollment_id` | The Canvas id of the new enrollment. |
+| `state` | The state of the enrollment. |
+| `state_started_at` | The time when this enrollment state starts. |
+| `state_is_current` | If this enrollment_state is uptodate |
+| `state_valid_until` | The time at which this enrollment is no longer valid. |
+| `restricted_access` | True if this enrollment_state is restricted. |
+| `access_is_current ` | If this enrollment_state access is upto date. |
+| `state_invalidated_at ` | Time enrollment_state was invalidated. |
+| `state_recalculated_at` | Time enrollment_state was created. |
+| `access_invalidated_at` | Time enrollment_state access was invalidated. |
+| `access_recalculated_at` | Time enrollment_state access was created. |
+
+
+#### `user_account_association_created`
+
+| Field | Description |
+| ----- | ----------- |
+| `user_id` | The Canvas id of the user for this association. |
+| `account_id` | The Canvas id of the account for this association. |
+| `created_at` | The time at which this association was created. |
+| `updated_at` | The time at which this association was last modified. |
+| `roles` | The roles the user has in the account. |
+
+#### `attachment_created`
+
+| Field | Description |
+| ----- | ----------- |
+| `user_id` | The Canvas id of the user associated with the attachment. |
+| `attachment_id` | The Canvas id of the attachment. |
+| `display_name` | The display name of the attachment (possibly truncated). |
+| `filename` | The file name of the attachment (possibly truncated). |
+| `unlock_at` | The unlock date (attachment is unlocked after this date) |
+| `lock_at` | The lock date (attachment is locked after this date) |
+| `updated_at` | The time at which this attachment was last modified in any way |
+| `context_type` | The type of context the attachment is used in. |
+| `context_id` | The id of the context the attachment is used in. |
+| `content_type` | The content type of the attachment. |
+
+#### `attachment_updated`
+
+`attachment_updated` events are triggered when an attachment's `display_name` is updated.
+
+| Field | Description |
+| ----- | ----------- |
+| `user_id` | The Canvas id of the user associated with the attachment. |
+| `attachment_id` | The Canvas id of the attachment. |
+| `display_name` | The display name of the attachment (possibly truncated). |
+| `old_display_name` | The old display name of the attachment (possibly truncated). |
+| `filename` | The file name of the attachment (possibly truncated). |
+| `unlock_at` | The unlock date (attachment is unlocked after this date) |
+| `lock_at` | The lock date (attachment is locked after this date) |
+| `updated_at` | The time at which this attachment was last modified in any way |
+| `context_type` | The type of context the attachment is used in. |
+| `context_id` | The id of the context the attachment is used in. |
+| `content_type` | The content type of the attachment. |
+
+#### `attachment_deleted`
+
+| Field | Description |
+| ----- | ----------- |
+| `user_id` | The Canvas id of the user associated with the attachment. |
+| `attachment_id` | The Canvas id of the attachment. |
+| `display_name` | The display name of the attachment (possibly truncated). |
+| `filename` | The file name of the attachment (possibly truncated). |
+| `unlock_at` | The unlock date |
+| `lock_at` | The lock date |
+| `updated_at` | The time at which this attachment was last modified in any way |
+| `context_type` | The type of context the attachment is used in. |
+| `context_id` | The id of the context the attachment is used in. |
+| `content_type` | The content type of the attachment. |
+
+#### `account_notification_created`
+
+| Field | Description |
+| ----- | ----------- |
+| `account_notification_id` | The Canvas id of the account notification. |
+| `subject` | The subject of the notification. |
+| `message` | The message to be sent in the notification. |
+| `icon` | The icon to display with the message.  Defaults to warning. |
+| `start_at` | When to send out the notification. |
+| `end_at` | When to expire the notification. |

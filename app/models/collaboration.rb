@@ -38,7 +38,7 @@ class Collaboration < ActiveRecord::Base
   after_commit :generate_document, on: :create
 
   TITLE_MAX_LENGTH = 255
-  validates_presence_of :title, :workflow_state
+  validates_presence_of :title, :workflow_state, :context_id, :context_type
   validates_length_of :title, :maximum => TITLE_MAX_LENGTH
   validates_length_of :description, :maximum => maximum_text_length, :allow_nil => true, :allow_blank => true
 
@@ -200,11 +200,13 @@ class Collaboration < ActiveRecord::Base
   #
   # Returns nothing.
   def include_author_as_collaborator
+    return unless self.user.present?
     author = collaborators.where(:user_id => self.user_id).first
 
     unless author
       collaborator = Collaborator.new(:collaboration => self)
       collaborator.user_id = self.user_id
+      collaborator.authorized_service_user_id = authorized_service_user_id_for(self.user)
       collaborator.save
     end
   end
@@ -224,15 +226,6 @@ class Collaboration < ActiveRecord::Base
   # Returns a comma-seperated list of collaborator user IDs.
   def collaborator_ids
     self.collaborators.pluck(:user_id).join(',')
-  end
-
-  # Public: Return the title for this collaboration.
-  #
-  # Returns a title string.
-  def title
-    read_attribute(:title) || self.parse_data["title"]
-  rescue NoMethodError
-    t('#collaboration.default_title', 'Unnamed Collaboration')
   end
 
   # Internal: Create the collaboration document in the remote service.
@@ -264,10 +257,11 @@ class Collaboration < ActiveRecord::Base
   # Any current collaborators not passed to this method will be destroyed.
   #
   # users     - An array of users to include as collaborators.
-  # group_ids - An array of group ids to include as collaborators.
+  # groups    - An array of groups or group ids to include as collaborators.
   #
   # Returns nothing.
-  def update_members(users = [], group_ids = [])
+  def update_members(users = [], groups = [])
+    group_ids = groups.map {|g| g.try(:id) || g }
     save! if new_record?
     generate_document
     users << user if user.present? && !users.include?(user)
@@ -312,7 +306,7 @@ class Collaboration < ActiveRecord::Base
       users_to_remove = collaborators.where("user_id IS NOT NULL").pluck(:user_id)
       group_ids = collaborators.where("group_id IS NOT NULL").pluck(:group_id)
       if !group_ids.empty?
-        users_to_remove += GroupMembership.where(group_id: group_ids).select(:user_id).uniq.map(&:user_id)
+        users_to_remove += GroupMembership.where(group_id: group_ids).distinct.pluck(:user_id)
         users_to_remove.uniq!
       end
       # make real user objects, instead of just ids, cause that's what this code expects
@@ -361,16 +355,17 @@ class Collaboration < ActiveRecord::Base
   #
   # Returns nothing.
   def add_groups_to_collaborators(group_ids)
+    return unless context.respond_to?(:groups)
     if group_ids.length > 0
-      existing_groups = collaborators.where(:group_id => group_ids).select(:group_id).uniq.map(&:group_id)
-      (group_ids - existing_groups).each do |g|
+      existing_groups = collaborators.where(:group_id => group_ids).select(:group_id)
+      context.groups.where(:id => group_ids).where.not(:id => existing_groups).each do |g|
         collaborator = collaborators.build
         collaborator.group_id = g
         collaborator.save
       end
     end
   end
-  protected :add_groups_to_collaborators
+  private :add_groups_to_collaborators
 
   # Internal: Update collaborators with the given groups.
   #
@@ -379,11 +374,17 @@ class Collaboration < ActiveRecord::Base
   # Returns nothing.
   def add_users_to_collaborators(users)
     if users.length > 0
-      existing_users = collaborators.where(:user_id => users).pluck(:user_id)
-      users.select { |u| !existing_users.include?(u.id) }.each do |u|
-        collaborators.create(:user => u, :authorized_service_user_id => u.gmail)
+      existing_users = collaborators.where(:user_id => users).select(:user_id)
+      context.potential_collaborators.where(:id => users).where.not(:id => existing_users).each do |u|
+        collaborators.create(:user => u, :authorized_service_user_id => authorized_service_user_id_for(u))
       end
     end
   end
-  protected :add_users_to_collaborators
+  private :add_users_to_collaborators
+
+  # Internal: Get the authorized_service_user_id for a user.
+  # May be overridden by other collaboration types.
+  protected def authorized_service_user_id_for(user)
+    user.gmail
+  end
 end

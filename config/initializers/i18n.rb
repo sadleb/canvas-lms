@@ -13,6 +13,16 @@ Rails.application.config.i18n.backend = I18nema::Backend.new
 Rails.application.config.i18n.enforce_available_locales = true
 Rails.application.config.i18n.fallbacks = true
 
+module DontTrustI18nPluralizations
+  def pluralize(locale, entry, count)
+    super
+  rescue I18n::InvalidPluralizationData => e
+    Rails.logger.error("#{e.message} in locale #{locale.inspect}")
+    ""
+  end
+end
+I18nema::Backend.include(DontTrustI18nPluralizations)
+
 module CalculateDeprecatedFallbacks
   def reload!
     super
@@ -87,6 +97,7 @@ ActionView::Helpers::FormHelper.module_eval do
     text, options = _label_symbol_translation(method, text, options)
     label_without_symbol_translation(object_name, method, text, options)
   end
+  # when removing this, be sure to remove it from i18nliner_extensions.rb
   alias_method_chain :label, :symbol_translation
 end
 

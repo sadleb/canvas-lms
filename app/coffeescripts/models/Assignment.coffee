@@ -4,13 +4,17 @@ define [
   'Backbone'
   'compiled/backbone-ext/DefaultUrlMixin'
   'compiled/models/TurnitinSettings'
+  'compiled/models/VeriCiteSettings'
   'compiled/models/DateGroup'
   'compiled/collections/AssignmentOverrideCollection'
   'compiled/collections/DateGroupCollection'
   'i18n!assignments'
-  'compiled/util/GradingPeriods'
+  'jsx/grading/helpers/GradingPeriodsHelper'
   'timezone'
-], ($, _, {Model}, DefaultUrlMixin, TurnitinSettings, DateGroup, AssignmentOverrideCollection, DateGroupCollection, I18n, GradingPeriods, tz) ->
+], ($, _, {Model}, DefaultUrlMixin, TurnitinSettings, VeriCiteSettings, DateGroup, AssignmentOverrideCollection, DateGroupCollection, I18n, GradingPeriodsHelper, tz) ->
+
+  isAdmin = () ->
+    _.contains(ENV.current_user_roles, 'admin')
 
   class Assignment extends Model
     @mixin DefaultUrlMixin
@@ -28,6 +32,9 @@ define [
         @set 'assignment_overrides', new AssignmentOverrideCollection(overrides)
       if (turnitin_settings = @get('turnitin_settings'))?
         @set 'turnitin_settings', new TurnitinSettings(turnitin_settings),
+          silent: true
+      if (vericite_settings = @get('vericite_settings'))?
+        @set 'vericite_settings', new VeriCiteSettings(vericite_settings),
           silent: true
       if (all_dates = @get('all_dates'))?
         @set 'all_dates', new DateGroupCollection(all_dates)
@@ -75,12 +82,21 @@ define [
       return @get('points_possible') || 0 unless arguments.length > 0
       @set 'points_possible', points
 
+    secureParams: =>
+      @get('secure_params')
+
     assignmentGroupId: (assignment_group_id) =>
       return @get 'assignment_group_id' unless arguments.length > 0
       @set 'assignment_group_id', assignment_group_id
 
     canFreeze: =>
       @get('frozen_attributes')? && !@frozen()
+
+    canDelete: =>
+      not @inClosedGradingPeriod() and not @frozen()
+
+    canMove: =>
+      not @inClosedGradingPeriod() and not _.include(@frozenAttributes(), 'assignment_group_id')
 
     freezeOnCopy: =>
       @get('freeze_on_copy')
@@ -91,9 +107,17 @@ define [
     frozenAttributes: =>
       @get('frozen_attributes') || []
 
+    inClosedGradingPeriod: =>
+      return false if isAdmin()
+      @get('in_closed_grading_period')
+
     gradingType: (gradingType) =>
       return @get('grading_type') || 'points' unless gradingType
       @set 'grading_type', gradingType
+
+    omitFromFinalGrade: (omitFromFinalGradeBoolean) =>
+      return @get 'omit_from_final_grade' unless arguments.length > 0
+      @set 'omit_from_final_grade', omitFromFinalGradeBoolean
 
     courseID: => @get('course_id')
 
@@ -168,6 +192,9 @@ define [
       return @get('peer_reviews_assign_at') || null unless arguments.length > 0
       @set 'peer_reviews_assign_at', date
 
+    intraGroupPeerReviews: ->
+      @get('intra_group_peer_reviews')
+
     notifyOfUpdate: (notifyOfUpdateBoolean) =>
       return @get 'notify_of_update' unless arguments.length > 0
       @set 'notify_of_update', notifyOfUpdateBoolean
@@ -181,6 +208,9 @@ define [
     turnitinAvailable: =>
       typeof @get('turnitin_enabled') != 'undefined'
 
+    vericiteAvailable: =>
+      typeof @get('vericite_enabled') != 'undefined'
+
     gradeGroupStudentsIndividually: (setting) =>
       return @get('grade_group_students_individually') unless arguments.length > 0
       @set 'grade_group_students_individually', setting
@@ -193,6 +223,15 @@ define [
           !!@get( 'turnitin_enabled' )
       else
         @set( 'turnitin_enabled', setting )
+
+    vericiteEnabled: (setting) =>
+      if arguments.length == 0
+        if @get( 'vericite_enabled' ) == undefined
+          false
+        else
+          !!@get( 'vericite_enabled' )
+      else
+        @set( 'vericite_enabled', setting )
 
     groupCategoryId: (id) =>
       return @get( 'group_category_id' ) unless arguments.length > 0
@@ -270,8 +309,12 @@ define [
         lock_at:   @get("lock_at")
 
     multipleDueDates: =>
-      dateGroups = @get("all_dates")
-      dateGroups && dateGroups.length > 1
+      count = @get("all_dates_count")
+      if count && count > 1
+        true
+      else
+        dateGroups = @get("all_dates")
+        dateGroups && dateGroups.length > 1
 
     hasDueDate: =>
       !@isPage()
@@ -301,22 +344,28 @@ define [
       else
         return @dueAt()
 
+    is_quiz_assignment: =>
+      @get('is_quiz_assignment')
+
     toView: =>
       fields = [
-        'name', 'dueAt','description','pointsPossible', 'lockAt', 'unlockAt',
+        'name', 'dueAt', 'description', 'pointsPossible', 'lockAt', 'unlockAt',
         'gradingType', 'notifyOfUpdate', 'peerReviews', 'automaticPeerReviews',
         'peerReviewCount', 'peerReviewsAssignAt', 'anonymousPeerReviews',
-        'acceptsOnlineUpload','acceptsMediaRecording', 'submissionType',
+        'acceptsOnlineUpload', 'acceptsMediaRecording', 'submissionType',
         'acceptsOnlineTextEntries', 'acceptsOnlineURL', 'allowedExtensions',
         'restrictFileExtensions', 'isOnlineSubmission', 'isNotGraded',
         'isExternalTool', 'externalToolUrl', 'externalToolNewTab',
-        'turnitinAvailable','turnitinEnabled',
-        'gradeGroupStudentsIndividually', 'groupCategoryId', 'frozen',
-        'frozenAttributes', 'freezeOnCopy', 'canFreeze', 'isSimple',
-        'gradingStandardId', 'isLetterGraded', 'isGpaScaled', 'assignmentGroupId', 'iconType',
-        'published', 'htmlUrl', 'htmlEditUrl', 'labelId', 'position', 'postToSIS',
-        'multipleDueDates', 'nonBaseDates', 'allDates', 'hasDueDate', 'hasPointsPossible'
-        'singleSectionDueDate', 'moderatedGrading', 'postToSISEnabled', 'isOnlyVisibleToOverrides'
+        'turnitinAvailable', 'turnitinEnabled', 'vericiteAvailable',
+        'vericiteEnabled', 'gradeGroupStudentsIndividually', 'groupCategoryId',
+        'frozen', 'frozenAttributes', 'freezeOnCopy', 'canFreeze', 'isSimple',
+        'gradingStandardId', 'isLetterGraded', 'isGpaScaled',
+        'assignmentGroupId', 'iconType', 'published', 'htmlUrl', 'htmlEditUrl',
+        'labelId', 'position', 'postToSIS', 'multipleDueDates', 'nonBaseDates',
+        'allDates', 'hasDueDate', 'hasPointsPossible', 'singleSectionDueDate',
+        'moderatedGrading', 'postToSISEnabled', 'isOnlyVisibleToOverrides',
+        'omitFromFinalGrade', 'is_quiz_assignment', 'secureParams',
+        'inClosedGradingPeriod'
       ]
 
       hash = id: @get 'id'
@@ -331,11 +380,12 @@ define [
 
     inGradingPeriod: (gradingPeriod) ->
       dateGroups = @get("all_dates")
+      gradingPeriodsHelper = new GradingPeriodsHelper(gradingPeriod)
       if dateGroups
         _.any dateGroups.models, (dateGroup) =>
-          GradingPeriods.dateIsInGradingPeriod(dateGroup.dueAt(), gradingPeriod)
+          gradingPeriodsHelper.isDateInGradingPeriod(dateGroup.dueAt(), gradingPeriod.id)
       else
-        GradingPeriods.dateIsInGradingPeriod(tz.parse(@dueAt()), gradingPeriod)
+        gradingPeriodsHelper.isDateInGradingPeriod(tz.parse(@dueAt()), gradingPeriod.id)
 
     search: (regex, gradingPeriod) ->
       match = regex == "" || @get('name').match(regex)
@@ -356,6 +406,8 @@ define [
         data.assignment_overrides = new AssignmentOverrideCollection overrides
       if (turnitin_settings = data.turnitin_settings)?
         data.turnitin_settings = new TurnitinSettings turnitin_settings
+      if (vericite_settings = data.vericite_settings)?
+        data.vericite_settings = new VeriCiteSettings vericite_settings
       data
 
     # Update the Assignment model instance to not parse results from the

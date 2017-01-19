@@ -24,6 +24,7 @@ describe "interaction with multiple grading periods" do
   include Gradebook2Common
 
   let(:group_helper) { Factories::GradingPeriodGroupHelper.new }
+  let(:get_gradebook) { get "/courses/#{@course.id}/gradebook" }
 
   context "gradebook" do
     before :each do
@@ -47,32 +48,33 @@ describe "interaction with multiple grading periods" do
       expect(f('.grading-period-select-button')).to include_text(current_period.title)
     end
 
-    it 'multiple grading period dropdown should filter assignments by selected grading period', priority: "1", test_id: 202330 do
-      get "/courses/#{@course.id}/gradebook"
+    context "using multiple grading period dropdown" do
+      it 'should display current grading period on load', test_id: 2528634, priority: "2" do
+        get_gradebook
+        element = ff('.slick-header-column a').select { |a| a.text == 'assignment three' }
+        expect(element.first).to be_displayed
+      end
 
-      # select future grading period
-      f('.grading-period-select-button').click
-      fj('.ui-menu-item label:contains("Course Period 1: future period")').click
-      wait_for_ajaximations
-      element = ff('.slick-header-column a').select { |a| a.text == 'second assignment' }
-      expect(element.first).to be_displayed
+      it 'filters assignments when different grading periods selected', test_id: 2528635, priority: "2" do
+        get_gradebook
+        f('.grading-period-select-button').click
+        fj('.ui-menu-item label:contains("Course Period 1: future period")').click
+        wait_for_ajaximations
+        element = ff('.slick-header-column a').select { |a| a.text == 'second assignment' }
+        expect(element.first).to be_displayed
+      end
 
-      # select current grading period
-      f('.grading-period-select-button').click
-      fj('.ui-menu-item label:contains("Course Period 2: current period")').click
-      wait_for_ajaximations
-      element = ff('.slick-header-column a').select { |a| a.text == 'assignment three' }
-      expect(element.first).to be_displayed
+      it 'displays all assignments when all grading periods selected', test_id: 2528636, priority: "2" do
+        get_gradebook
+        f('.grading-period-select-button').click
+        fj('.ui-menu-item label:contains("All Grading Periods")').click
+        wait_for_ajaximations
 
-      # select all grading periods
-      f('.grading-period-select-button').click
-      fj('.ui-menu-item label:contains("All Grading Periods")').click
-      wait_for_ajaximations
-
-      element = ff('.slick-header-column a').select { |a| a.text == 'assignment three' }
-      expect(element.first).to be_displayed
-      element = ff('.slick-header-column a').select { |a| a.text == 'second assignment' }
-      expect(element.first).to be_displayed
+        element = ff('.slick-header-column a').select { |a| a.text == 'assignment three' }
+        expect(element.first).to be_displayed
+        element = ff('.slick-header-column a').select { |a| a.text == 'second assignment' }
+        expect(element.first).to be_displayed
+      end
     end
   end
 
@@ -97,7 +99,7 @@ describe "interaction with multiple grading periods" do
       let!(:enroll_teacher) { test_course.enroll_user(teacher, 'TeacherEnrollment', enrollment_state: 'active') }
       let!(:enable_mgp_flag) { account.enable_feature!(:multiple_grading_periods) }
       let!(:enable_course_mgp_flag) { test_course.enable_feature!(:multiple_grading_periods) }
-      let!(:grading_period_group) { group_helper.create_for_course(test_course) }
+      let!(:grading_period_group) { group_helper.legacy_create_for_course(test_course) }
       let!(:course_grading_period_current) do
         grading_period_group.grading_periods.create!(
           title: 'Course Grading Period 1',
@@ -112,7 +114,7 @@ describe "interaction with multiple grading periods" do
           end_date: 1.day.ago
         )
       end
-      let!(:assignment) { test_course.assignments.create!(title: 'Assignment 1', due_at: 1.day.ago, points: 10) }
+      let!(:assignment) { test_course.assignments.create!(title: 'Assignment 1', due_at: 1.day.ago, points_possible: 10) }
 
       it 'should list an assignment from a previous grading period', priority: "2", test_course: 381145 do
         user_session(teacher)
@@ -129,48 +131,16 @@ describe "interaction with multiple grading periods" do
     end
   end
 
-  context 'sub-accounts' do
-    # top-level account & grading periods setup
-    let(:parent_account) { Account.default }
-    let!(:enable_mgp_flag) { parent_account.enable_feature!(:multiple_grading_periods) }
-    # sub-account & grading periods setup
-    let(:sub_account) { Account.create(name: 'Sub Account', parent_account: parent_account) }
-    # sub-account course setup
-    let(:sub_account_course) do
-      sub_account.courses.create(
-        name: 'Sub-Account Course',
-        workflow_state: 'active'
-      )
-    end
-    let(:sub_account_teacher) { user(active_all: true) }
-    let(:enroll_teacher) do
-      sub_account_course.enroll_user(
-        sub_account_teacher,
-        'TeacherEnrollment',
-        enrollment_state: 'active'
-      )
-    end
-    let(:view_sub_course_grading_period) do
-      sub_account_course
-      enroll_teacher
-      user_session(sub_account_teacher)
-      get "/courses/#{sub_account_course.id}/grading_standards"
-    end
-
-    it 'does not allow creation of a GP in sub-account course', priority: "1", test_id: 587759 do
-      view_sub_course_grading_period
-      expect(f('#grading_periods')).not_to contain_css('#add-period-button')
-    end
-  end
-
   context 'student view' do
     let(:account) { Account.default }
     let(:test_course) { account.courses.create!(name: 'New Course') }
     let(:student) { user(active_all: true) }
+    let(:teacher) { user(active_all: true) }
+    let!(:enroll_teacher) { test_course.enroll_teacher(teacher) }
     let!(:enroll_student) { test_course.enroll_user(student, 'StudentEnrollment', enrollment_state: 'active') }
     let!(:enable_mgp_flag) { account.enable_feature!(:multiple_grading_periods) }
     let!(:enable_course_mgp_flag) { test_course.enable_feature!(:multiple_grading_periods) }
-    let!(:grading_period_group) { group_helper.create_for_course(test_course) }
+    let!(:grading_period_group) { group_helper.legacy_create_for_course(test_course) }
     let!(:course_grading_period_1) do
       grading_period_group.grading_periods.create!(
         title: 'Course Grading Period 1',
@@ -185,9 +155,9 @@ describe "interaction with multiple grading periods" do
         end_date: 7.weeks.from_now
       )
     end
-    let!(:assignment1) { test_course.assignments.create!(title: 'Assignment 1', due_at: 3.days.from_now, points: 10) }
-    let!(:assignment2) { test_course.assignments.create!(title: 'Assignment 2', due_at: 6.weeks.from_now, points: 10) }
-    let!(:grade_assignment1) { assignment1.grade_student(student, { grade: 8 }) }
+    let!(:assignment1) { test_course.assignments.create!(title: 'Assignment 1', due_at: 3.days.from_now, points_possible: 10) }
+    let!(:assignment2) { test_course.assignments.create!(title: 'Assignment 2', due_at: 6.weeks.from_now, points_possible: 10) }
+    let!(:grade_assignment1) { assignment1.grade_student(student, grade: 8, grader: teacher) }
 
     before(:each) do
       test_course.offer!

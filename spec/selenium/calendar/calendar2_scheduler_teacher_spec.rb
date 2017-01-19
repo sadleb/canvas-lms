@@ -205,17 +205,23 @@ describe "scheduler" do
     end
 
     it "should validate the appointment group shows up on the calendar", priority: "1", test_id: 140193 do
-      create_appointment_group
+      date = Time.zone.today.to_s
+      create_appointment_group(:new_appointments => [
+        [date + ' 12:00:00', date + ' 13:00:00'],
+      ])
       get "/calendar2"
       click_scheduler_link
       wait_for_ajaximations
       click_appointment_link
       wait_for_ajaximations
-      expect(f('.agenda-event .ig-row')).to be_present
+      expect(f('.agenda-event__item .agenda-event__item-container')).to be_present
     end
 
     it "should validate the appointment group shows on all views after a student signed up", priority: "1", test_id: 1729408 do
-      create_appointment_group
+      date = Time.zone.today.to_s
+      create_appointment_group(:new_appointments => [
+        [date + ' 12:00:00', date + ' 13:00:00'],
+      ])
       ag = AppointmentGroup.first
       student_in_course(course: @course, active_all: true)
       ag.appointments.first.reserve_for(@user, @user, comments: 'this is important')
@@ -224,7 +230,7 @@ describe "scheduler" do
       f('#week').click
       expect(f('.fc-content .fc-title').text).to include('new appointment group')
       f('#agenda').click
-      expect(f('.agenda-event .ig-title').text).to include('new appointment group')
+      expect(f('.agenda-event__item .agenda-event__item-container').text).to include('new appointment group')
     end
 
     it "should not allow limiting the max appointments per participant to less than 1", priority: "1", test_id: 140194 do
@@ -236,7 +242,7 @@ describe "scheduler" do
       max_appointments_input = f('[name="max_appointments_per_participant"]')
       replace_content(max_appointments_input, '0')
 
-      f('.ui-dialog-buttonset .btn-primary').click
+      f('.ui-dialog-buttonset .Button--primary').click
       assert_error_box('[name="max_appointments_per_participant"]')
     end
 
@@ -251,7 +257,7 @@ describe "scheduler" do
       f(".appointment-group-item:nth-child(1) .view_calendar_link").click
       wait_for_ajaximations
 
-      fj('.agenda-event .ig-row').click
+      fj('.agenda-event__item .agenda-event__item-container').click
 
       wait_for_ajaximations
 
@@ -261,7 +267,6 @@ describe "scheduler" do
     end
 
     it "should allow removing individual appointment users",:priority  => "1", test_id: 140196 do
-      #set_native_events("false")
       # user appointment group
       create_appointment_group
       ag = AppointmentGroup.first
@@ -276,7 +281,7 @@ describe "scheduler" do
 
       f(".appointment-group-item:nth-child(1) .view_calendar_link").click
 
-      f('.agenda-event .ig-row').click
+      f('.agenda-event__item .agenda-event__item-container').click
 
       expect(ff('#attendees li')).to have_size(2)
 
@@ -287,14 +292,13 @@ describe "scheduler" do
       wait_for_ajaximations
       expect(ff('#attendees li')).to have_size(1)
 
-      f('.agenda-event .ig-row').click
+      f('.agenda-event__item .agenda-event__item-container').click
 
       expect(ff('#attendees li')).to have_size(1)
       f('.scheduler_done_button').click
     end
 
     it "should allow removing individual appointment groups" do
-      #set_native_events("false")
       # group appointment group
       gc = @course.group_categories.create!(:name => "Blah Groups")
       title = create_appointment_group :sub_context_codes => [gc.asset_string],
@@ -315,7 +319,7 @@ describe "scheduler" do
 
       f(".appointment-group-item:nth-child(1) .view_calendar_link").click
       wait_for_ajaximations
-      fj('.agenda-event .ig-row').click
+      fj('.agenda-event__item .agenda-event__item-container').click
       wait_for_ajaximations
       expect(ffj('#attendees li').size).to eq 2
 
@@ -326,7 +330,7 @@ describe "scheduler" do
       wait_for_ajaximations
       expect(ff('#attendees li').size).to eq 1
 
-      fj('.agenda-event .ig-row').click
+      fj('.agenda-event__item .agenda-event__item-container').click
       expect(ff('#attendees li').size).to eq 1
       f('.scheduler_done_button').click
     end

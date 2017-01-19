@@ -1,7 +1,37 @@
 module Canvas::LiveEvents
-  def self.post_event_stringified(event_name, payload)
+  def self.post_event_stringified(event_name, payload, context = nil)
     StringifyIds.recursively_stringify_ids(payload)
-    LiveEvents.post_event(event_name, payload)
+    LiveEvents.post_event(event_name, payload, Time.zone.now, context)
+  end
+
+  def self.amended_context(canvas_context)
+    ctx = LiveEvents.get_context || {}
+    return ctx unless canvas_context
+    ctx.merge({
+      context_type: canvas_context.class.to_s,
+      context_id: canvas_context.global_id,
+      root_account_id: canvas_context.root_account.try(:global_id),
+      root_account_lti_guid: canvas_context.root_account.try(:lti_guid),
+    })
+  end
+
+  def self.get_course_data(course)
+    {
+      course_id: course.id,
+      account_id: course.account_id,
+      name: course.name,
+      created_at: course.created_at,
+      updated_at: course.updated_at,
+      workflow_state: course.workflow_state
+    }
+  end
+
+  def self.course_created(course)
+    post_event_stringified('course_created', get_course_data(course))
+  end
+
+  def self.course_updated(course)
+    post_event_stringified('course_updated', get_course_data(course))
   end
 
   def self.course_syllabus_updated(course, old_syllabus_body)
@@ -37,6 +67,17 @@ module Canvas::LiveEvents
     })
   end
 
+  def self.account_notification_created(notification)
+    post_event_stringified('account_notification_created', {
+      account_notification_id: notification.id,
+      subject: LiveEvents.truncate(notification.subject),
+      message: LiveEvents.truncate(notification.message),
+      icon: notification.icon,
+      start_at: notification.start_at,
+      end_at: notification.end_at,
+    })
+  end
+
   def self.group_membership_created(membership)
     post_event_stringified('group_membership_created', {
       group_membership_id: membership.global_id,
@@ -67,6 +108,9 @@ module Canvas::LiveEvents
   def self.get_assignment_data(assignment)
     {
       assignment_id: assignment.global_id,
+      context_id: assignment.global_context_id,
+      context_type: assignment.context_type,
+      workflow_state: assignment.workflow_state,
       title: LiveEvents.truncate(assignment.title),
       description: LiveEvents.truncate(assignment.description),
       due_at: assignment.due_at,
@@ -77,12 +121,21 @@ module Canvas::LiveEvents
     }
   end
 
+  def self.assignment_created(assignment)
+    post_event_stringified('assignment_created', get_assignment_data(assignment))
+  end
+
+  def self.assignment_updated(assignment)
+    post_event_stringified('assignment_updated', get_assignment_data(assignment))
+  end
+
   def self.get_submission_data(submission)
     {
       submission_id: submission.global_id,
       assignment_id: submission.global_assignment_id,
       user_id: submission.global_user_id,
       submitted_at: submission.submitted_at,
+      graded_at: submission.graded_at,
       updated_at: submission.updated_at,
       score: submission.score,
       grade: submission.grade,
@@ -93,20 +146,102 @@ module Canvas::LiveEvents
     }
   end
 
-  def self.assignment_created(assignment)
-    post_event_stringified('assignment_created', get_assignment_data(assignment))
+  def self.get_attachment_data(attachment)
+    {
+      attachment_id: attachment.global_id,
+      user_id: attachment.global_user_id,
+      display_name: LiveEvents.truncate(attachment.display_name),
+      filename: LiveEvents.truncate(attachment.filename),
+      context_type: attachment.context_type,
+      context_id: attachment.global_context_id,
+      content_type: attachment.content_type,
+      folder_id: attachment.global_folder_id,
+      unlock_at: attachment.unlock_at,
+      lock_at: attachment.lock_at,
+      updated_at: attachment.updated_at
+    }
   end
 
   def self.submission_created(submission)
     post_event_stringified('submission_created', get_submission_data(submission))
   end
 
-  def self.assignment_updated(assignment)
-    post_event_stringified('assignment_updated', get_assignment_data(assignment))
-  end
-
   def self.submission_updated(submission)
     post_event_stringified('submission_updated', get_submission_data(submission))
+  end
+
+  def self.get_user_data(user)
+    {
+      user_id: user.id,
+      name: user.name,
+      short_name: user.short_name,
+      workflow_state: user.workflow_state,
+      created_at: user.created_at,
+      updated_at: user.updated_at
+    }
+  end
+
+  def self.user_created(user)
+    post_event_stringified('user_created', get_user_data(user))
+  end
+
+  def self.user_updated(user)
+    post_event_stringified('user_updated', get_user_data(user))
+  end
+
+  def self.get_enrollment_data(enrollment)
+    {
+
+      enrollment_id: enrollment.id,
+      course_id: enrollment.course_id,
+      user_id: enrollment.user_id,
+      user_name: enrollment.user_name,
+      type: enrollment.type,
+      created_at: enrollment.created_at,
+      updated_at: enrollment.updated_at,
+      limit_privileges_to_course_section: enrollment.limit_privileges_to_course_section,
+      course_section_id: enrollment.course_section_id,
+      workflow_state: enrollment.workflow_state
+    }
+  end
+
+  def self.enrollment_created(enrollment)
+    post_event_stringified('enrollment_created', get_enrollment_data(enrollment))
+  end
+
+  def self.enrollment_updated(enrollment)
+    post_event_stringified('enrollment_updated', get_enrollment_data(enrollment))
+  end
+
+  def self.get_enrollment_state_data(enrollment_state)
+    {
+
+      enrollment_id: enrollment_state.enrollment_id,
+      state: enrollment_state.state,
+      state_started_at: enrollment_state.state_started_at,
+      state_is_current: enrollment_state.state_is_current,
+      state_valid_until: enrollment_state.state_valid_until,
+      restricted_access: enrollment_state.restricted_access,
+      access_is_current: enrollment_state.access_is_current
+    }
+  end
+
+  def self.enrollment_state_created(enrollment_state)
+    post_event_stringified('enrollment_state_created', get_enrollment_state_data(enrollment_state))
+  end
+
+  def self.enrollment_state_updated(enrollment_state)
+    post_event_stringified('enrollment_state_updated', get_enrollment_state_data(enrollment_state))
+  end
+
+  def self.user_account_association_created(assoc)
+    post_event_stringified('user_account_association_created', {
+      user_id: assoc.user_id,
+      account_id: assoc.account_id,
+      created_at: assoc.created_at,
+      updated_at: assoc.updated_at,
+      is_admin: !(assoc.account.root_account.all_account_users_for(assoc.user).empty?),
+    })
   end
 
   def self.logged_in(session)
@@ -160,7 +295,24 @@ module Canvas::LiveEvents
     })
   end
 
-  def self.grade_changed(submission, old_grade)
+  def self.attachment_created(attachment)
+    post_event_stringified('attachment_created', get_attachment_data(attachment))
+  end
+
+  def self.attachment_updated(attachment, old_display_name)
+    payload = get_attachment_data(attachment)
+    if old_display_name
+      payload[:old_display_name] = LiveEvents.truncate(old_display_name)
+    end
+
+    post_event_stringified('attachment_updated', payload)
+  end
+
+  def self.attachment_deleted(attachment)
+    post_event_stringified('attachment_deleted', get_attachment_data(attachment))
+  end
+
+  def self.grade_changed(submission, old_submission=nil, old_assignment=submission.assignment)
     grader_id = nil
     if submission.grader_id && !submission.autograded?
       grader_id = submission.global_grader_id
@@ -170,11 +322,15 @@ module Canvas::LiveEvents
       submission_id: submission.global_id,
       assignment_id: submission.global_assignment_id,
       grade: submission.grade,
-      old_grade: old_grade,
+      old_grade: old_submission.try(:grade),
+      score: submission.score,
+      old_score: old_submission.try(:score),
+      points_possible: submission.assignment.points_possible,
+      old_points_possible: old_assignment.points_possible,
       grader_id: grader_id,
       student_id: submission.global_user_id,
       user_id: submission.global_user_id
-    })
+    }, amended_context(submission.assignment.context))
   end
 
   def self.asset_access(asset, category, role, level)

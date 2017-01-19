@@ -123,6 +123,19 @@ Canvas::Plugin.register('kaltura', nil, {
   :settings_partial => 'plugins/kaltura_settings',
   :validator => 'KalturaValidator'
 })
+Canvas::Plugin.register('mathman', nil, {
+  :name => lambda{ t :name, 'MathMan' },
+  :description => lambda{ t :description, 'A simple microservice that converts LaTeX formulae to MathML and SVG'},
+  :author => 'Instructure',
+  :author_website => 'http://www.instructure.com',
+  :version => '1.0.0',
+  :settings_partial => 'plugins/mathman_settings',
+  :validator => 'MathmanValidator',
+  :settings => {
+    use_for_svg: false,
+    use_for_mml: false
+  }
+})
 Canvas::Plugin.register('wimba', :web_conferencing, {
   :name => lambda{ t :name, "Wimba" },
   :description => lambda{ t :description, "Wimba web conferencing support" },
@@ -134,15 +147,6 @@ Canvas::Plugin.register('wimba', :web_conferencing, {
   :settings => {:timezone => 'Eastern Time (US & Canada)'},
   :validator => 'WimbaValidator',
   :encrypted_settings => [:password]
-})
-Canvas::Plugin.register('error_reporting', :error_reporting, {
-  :name => lambda{ t :name, 'Error Reporting' },
-  :description => lambda{ t :description, 'Default error reporting mechanisms' },
-  :website => 'http://www.instructure.com',
-  :author => 'Instructure',
-  :author_website => 'http://www.instructure.com',
-  :version => '1.0.0',
-  :settings_partial => 'plugins/error_reporting_settings'
 })
 Canvas::Plugin.register('big_blue_button', :web_conferencing, {
   :name => lambda{ t :name, "BigBlueButton" },
@@ -223,9 +227,9 @@ Canvas::Plugin.register 'common_cartridge_importer', :export_system, {
     :worker => 'CCWorker',
     :migration_partial => 'cc_config',
     :requires_file_upload => true,
-    :provides =>{:common_cartridge=>CC::Importer::Standard::Converter, 
-                 :common_cartridge_1_0=>CC::Importer::Standard::Converter, 
-                 :common_cartridge_1_1=>CC::Importer::Standard::Converter, 
+    :provides =>{:common_cartridge=>CC::Importer::Standard::Converter,
+                 :common_cartridge_1_0=>CC::Importer::Standard::Converter,
+                 :common_cartridge_1_1=>CC::Importer::Standard::Converter,
                  :common_cartridge_1_2=>CC::Importer::Standard::Converter,
                  :common_cartridge_1_3=>CC::Importer::Standard::Converter},
     :valid_contexts => %w{Account Course}
@@ -349,6 +353,26 @@ Canvas::Plugin.register('pandapub', nil, {
   :settings_partial => 'plugins/panda_pub_settings',
   :validator => 'PandaPubValidator'
 })
+Canvas::Plugin.register('vericite', nil, {
+  :name => lambda{ t :name, 'VeriCite' },
+  :description => lambda{ t :description, 'Plagiarism detection service.' },
+  :author => 'VeriCite',
+  :author_website => 'http://www.vericite.com',
+  :version => '1.0.0',
+  :settings => {
+    :account_id => nil,
+    :shared_secret => nil,
+    :host => 'api.vericite.com',
+    :comments => nil,
+    :pledge => nil,
+    :release_to_students => 'immediate',
+    :exclude_quotes => true,
+    :exclude_self_plag => true,
+    :store_in_index => true,
+    :show_preliminary_score => false,
+  },
+  :settings_partial => 'plugins/vericite_settings'
+})
 Canvas::Plugins::TicketingSystem.register!
 Canvas::Plugin.register('live_events', nil, {
   :name => lambda{ t :name, 'Live Events' },
@@ -367,3 +391,21 @@ Canvas::Plugin.register('live_events', nil, {
   :settings_partial => 'plugins/live_events_settings',
   :validator => 'LiveEventsValidator'
 })
+Canvas::Plugin.register('live_events', nil, {
+  :name => lambda{ t :name, 'Live Events' },
+  :description => lambda{ t :description, 'Service for real-time events.' },
+  :author => 'Instructure',
+  :author_website => 'http://www.instructure.com',
+  :version => '1.0.0',
+  :settings => {
+    :kinesis_stream_name => nil,
+    :aws_access_key_id => nil,
+    :aws_secret_access_key => nil,
+    :aws_region => 'us-east-1',
+    :aws_endpoint => nil,
+  },
+  :encrypted_settings => [ :aws_secret_access_key ],
+  :settings_partial => 'plugins/live_events_settings',
+  :validator => 'LiveEventsValidator'
+})
+require_dependency 'canvas/plugins/address_book'

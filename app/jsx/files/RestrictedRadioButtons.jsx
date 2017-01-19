@@ -1,13 +1,13 @@
 define([
   'underscore',
   'react',
+  'react-dom',
   'i18n!restrict_student_access',
   'jquery',
   'compiled/react_files/modules/customPropTypes',
   'compiled/models/Folder',
-  'compiled/react/shared/utils/withReactElement',
   'jquery.instructure_date_and_time'
-], function (_, React, I18n, $, customPropTypes, Folder, withReactElement) {
+], function (_, React, ReactDOM, I18n, $, customPropTypes, Folder) {
 
   var RestrictedRadioButtons = React.createClass({
 
@@ -76,27 +76,27 @@ define([
         if (initialState.locked) {
           initialState.selectedOption = 'unpublished'
         } else {
-          if (initialState.hidden) {
+          if (initialState.lock_at || initialState.unlock_at) {
+            initialState.selectedOption = 'date_range'
+          } else if (initialState.hidden) {
             initialState.selectedOption = 'link_only'
           } else {
-            if (initialState.lock_at || initialState.unlock_at) {
-              initialState.selectedOption = 'date_range'
-            } else {
-              initialState.selectedOption = 'published'
-            }
+            initialState.selectedOption = 'published'
           }
         };
       }
       return initialState;
     },
     componentDidMount: function () {
-      return $([this.refs.unlock_at.getDOMNode(), this.refs.lock_at.getDOMNode()]).datetime_field();
+      return $([
+        ReactDOM.findDOMNode(this.refs.unlock_at),
+        ReactDOM.findDOMNode(this.refs.lock_at)]).datetime_field();
     },
     extractFormValues: function () {
       return {
         hidden: this.state.selectedOption === 'link_only',
-        unlock_at: this.state.selectedOption === 'date_range' && $(this.refs.unlock_at.getDOMNode()).data('unfudged-date') || '',
-        lock_at: this.state.selectedOption === 'date_range' && $(this.refs.lock_at.getDOMNode()).data('unfudged-date') || '',
+        unlock_at: this.state.selectedOption === 'date_range' && $(ReactDOM.findDOMNode(this.refs.unlock_at)).data('unfudged-date') || '',
+        lock_at: this.state.selectedOption === 'date_range' && $(ReactDOM.findDOMNode(this.refs.lock_at)).data('unfudged-date') || '',
         locked: this.state.selectedOption === 'unpublished'
       };
     },

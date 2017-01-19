@@ -212,6 +212,11 @@
         }
       }
     }
+    tr.criterion.learning_outcome_criterion {
+      td.points_form {
+        @include mode-visibility($edit: none, $disp: block, $igno: none);
+      }
+    }
     table.ratings {
       td.add_right {
         border-right-color: #000;
@@ -277,4 +282,9 @@
     color: #333;
     cursor: pointer;
   }
+}
+
+.ic-Action-header--half-margin {
+  margin-top: $ic-sp/2;
+  margin-bottom: $ic-sp/2;
 }

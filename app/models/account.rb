@@ -20,11 +20,7 @@ require 'atom'
 
 class Account < ActiveRecord::Base
   include Context
-  attr_accessible :name, :turnitin_account_id, :turnitin_shared_secret,
-    :turnitin_host, :turnitin_comments, :turnitin_pledge, :turnitin_originality,
-    :default_time_zone, :parent_account, :settings, :default_storage_quota,
-    :default_storage_quota_mb, :storage_quota, :ip_filters, :default_locale,
-    :default_user_storage_quota_mb, :default_group_storage_quota_mb, :integration_id, :brand_config_md5
+  strong_params
 
   INSTANCE_GUID_SUFFIX = 'canvas-lms'
 
@@ -42,6 +38,8 @@ class Account < ActiveRecord::Base
   has_many :all_group_memberships, source: 'group_memberships', through: :all_groups
   has_many :enrollment_terms, :foreign_key => 'root_account_id'
   has_many :active_enrollment_terms, -> { where("enrollment_terms.workflow_state<>'deleted'") }, class_name: 'EnrollmentTerm', foreign_key: 'root_account_id'
+  has_many :grading_period_groups, inverse_of: :root_account, dependent: :destroy
+  has_many :grading_periods, through: :grading_period_groups
   has_many :enrollments, -> { where("enrollments.type<>'StudentViewEnrollment'") }, foreign_key: 'root_account_id'
   has_many :all_enrollments, :class_name => 'Enrollment', :foreign_key => 'root_account_id'
   has_many :sub_accounts, -> { where("workflow_state<>'deleted'") }, class_name: 'Account', foreign_key: 'parent_account_id'
@@ -107,6 +105,7 @@ class Account < ActiveRecord::Base
 
   before_save :setup_cache_invalidation
   after_save :invalidate_caches_if_changed
+  after_update :clear_special_account_cache_if_special
 
   after_create :default_enrollment_term
   after_create :enable_canvas_authentication
@@ -137,7 +136,11 @@ class Account < ActiveRecord::Base
 
   def default_locale(recurse = false)
     result = read_attribute(:default_locale)
-    result ||= parent_account.default_locale(true) if recurse && parent_account
+    if recurse
+      result ||= Rails.cache.fetch(['default_locale', self.global_id].cache_key) do
+        parent_account.default_locale(true) if parent_account
+      end
+    end
     result = nil unless I18n.locale_available?(result)
     result
   end
@@ -148,13 +151,12 @@ class Account < ActiveRecord::Base
   # the account settings page
   add_setting :sis_app_token, :root_only => true
   add_setting :sis_app_url, :root_only => true
+  add_setting :sis_syncing, :boolean => true, :default => false, :inheritable => true
   add_setting :sis_default_grade_export, :boolean => true, :default => false, :inheritable => true
+  add_setting :sis_require_assignment_due_date, :boolean => true, :default => false, :inheritable => true
 
   add_setting :global_includes, :root_only => true, :boolean => true, :default => false
-  add_setting :global_javascript, :condition => :allow_global_includes
-  add_setting :global_stylesheet, :condition => :allow_global_includes
-  add_setting :sub_account_includes, :condition => :use_new_styles_or_allow_global_includes, :boolean => true, :default => false
-  add_setting :error_reporting, :hash => true, :values => [:action, :email, :url, :subject_param, :body_param], :root_only => true
+  add_setting :sub_account_includes, :boolean => true, :default => false
 
   # Help link settings
   add_setting :custom_help_links, :root_only => true
@@ -187,7 +189,6 @@ class Account < ActiveRecord::Base
   add_setting :open_registration, :boolean => true, :root_only => true
   add_setting :show_scheduler, :boolean => true, :root_only => true, :default => false
   add_setting :enable_profiles, :boolean => true, :root_only => true, :default => false
-  add_setting :enable_manage_groups2, :boolean => true, :root_only => true, :default => true
   add_setting :mfa_settings, :root_only => true
   add_setting :admins_can_change_passwords, :boolean => true, :root_only => true, :default => false
   add_setting :admins_can_view_notifications, :boolean => true, :root_only => true, :default => false
@@ -213,15 +214,12 @@ class Account < ActiveRecord::Base
   add_setting :include_students_in_global_survey, boolean: true, root_only: true, default: false
   add_setting :trusted_referers, root_only: true
   add_setting :app_center_access_token
+  add_setting :enable_offline_web_export, boolean: true, root_only: true, default: false
 
   add_setting :strict_sis_check, :boolean => true, :root_only => true, :default => false
-
-  def use_new_styles_or_allow_global_includes?
-    feature_enabled?(:use_new_styles) || allow_global_includes?
-  end
+  add_setting :lock_all_announcements, default: false, boolean: true, inheritable: true
 
   def settings=(hash)
-    @invalidate_settings_cache = true
     if hash.is_a?(Hash)
       hash.each do |key, val|
         if account_settings_options && account_settings_options[key.to_sym]
@@ -264,19 +262,10 @@ class Account < ActiveRecord::Base
     if root_account?
       global_includes?
     else
-      root_account.try(:sub_account_includes?)
+      root_account.try(:sub_account_includes?) && root_account.try(:allow_global_includes?)
     end
   end
 
-  def global_includes_hash
-    includes = {}
-    if allow_global_includes?
-      includes = {}
-      includes[:js] = settings[:global_javascript] if settings[:global_javascript].present?
-      includes[:css] = settings[:global_stylesheet] if settings[:global_stylesheet].present?
-    end
-    includes.present? ? includes : nil
-  end
 
   def mfa_settings
     settings[:mfa_settings].try(:to_sym) || :disabled
@@ -297,7 +286,7 @@ class Account < ActiveRecord::Base
   def enable_canvas_authentication
     return unless root_account?
     # for migrations creating a new db
-    return unless AccountAuthorizationConfig.columns_hash.key?('workflow_state')
+    return unless AccountAuthorizationConfig::Canvas.columns_hash.key?('workflow_state')
     return if authentication_providers.active.where(auth_type: 'canvas').exists?
     authentication_providers.create!(auth_type: 'canvas')
   end
@@ -409,7 +398,10 @@ class Account < ActiveRecord::Base
 
   def settings
     result = self.read_attribute(:settings)
-    return result if result
+    if result
+      @old_settings ||= result.dup
+      return result
+    end
     return write_attribute(:settings, {}) unless frozen?
     {}.freeze
   end
@@ -471,9 +463,10 @@ class Account < ActiveRecord::Base
     user_account_associations.where(user_id: user).exists?
   end
 
-  def fast_course_base(opts)
+  def fast_course_base(opts = {})
+    opts[:order] ||= "#{Course.best_unicode_collation_key("courses.name")} ASC"
     columns = "courses.id, courses.name, courses.workflow_state, courses.course_code, courses.sis_source_id, courses.enrollment_term_id"
-    associated_courses = self.associated_courses.active
+    associated_courses = self.associated_courses.active.order(opts[:order])
     associated_courses = associated_courses.with_enrollments if opts[:hide_enrollmentless_courses]
     associated_courses = associated_courses.for_term(opts[:term]) if opts[:term].present?
     associated_courses = yield associated_courses if block_given?
@@ -537,14 +530,25 @@ class Account < ActiveRecord::Base
   def setup_cache_invalidation
     @invalidations = []
     unless self.new_record?
-      @invalidations += ['default_storage_quota', 'current_quota'] if self.try_rescue(:default_storage_quota_changed?)
-      @invalidations << 'default_group_storage_quota' if self.try_rescue(:default_group_storage_quota_changed?)
+      invalidate_all = self.parent_account_id_changed?
+      # apparently, the try_rescues are because these columns don't exist on old migrations
+      @invalidations += ['default_storage_quota', 'current_quota'] if invalidate_all || self.try_rescue(:default_storage_quota_changed?)
+      @invalidations << 'default_group_storage_quota' if invalidate_all || self.try_rescue(:default_group_storage_quota_changed?)
+      @invalidations << 'default_locale' if invalidate_all || self.try_rescue(:default_locale_changed?)
     end
   end
 
   def invalidate_caches_if_changed
     @invalidations ||= []
-    @invalidations += Account.inheritable_settings if @invalidate_settings_cache
+    if self.parent_account_id_changed?
+      @invalidations += Account.inheritable_settings # invalidate all of them
+    elsif @old_settings
+      Account.inheritable_settings.each do |key|
+        @invalidations << key if @old_settings[key] != settings[key] # only invalidate if needed
+      end
+      @old_settings = nil
+    end
+
     if @invalidations.present?
       shard.activate do
         @invalidations.each do |key|
@@ -563,6 +567,11 @@ class Account < ActiveRecord::Base
         keys.each do |key|
           Rails.cache.delete([key, global_id].cache_key)
         end
+      end
+
+      access_keys = keys & [:restrict_student_future_view, :restrict_student_past_view]
+      if access_keys.any?
+        EnrollmentState.invalidate_access_for_accounts([parent_account.id] + account_ids, access_keys)
       end
     end
   end
@@ -701,6 +710,33 @@ class Account < ActiveRecord::Base
     chain
   end
 
+  def self.account_chain_ids(starting_account_id)
+    if connection.adapter_name == 'PostgreSQL'
+      Shard.shard_for(starting_account_id).activate do
+        id_chain = []
+        if (starting_account_id.is_a?(Account))
+          id_chain << starting_account_id.id
+          starting_account_id = starting_account_id.parent_account_id
+        end
+
+        if starting_account_id
+          ids = Account.connection.select_values(<<-SQL)
+                WITH RECURSIVE t AS (
+                  SELECT * FROM #{Account.quoted_table_name} WHERE id=#{Shard.local_id_for(starting_account_id).first}
+                  UNION
+                  SELECT accounts.* FROM #{Account.quoted_table_name} INNER JOIN t ON accounts.id=t.parent_account_id
+                )
+                SELECT id FROM t
+              SQL
+          id_chain.concat(ids.map(&:to_i))
+        end
+        id_chain
+      end
+    else
+      account_chain(starting_account_id).map(&:id)
+    end
+  end
+
   def self.add_site_admin_to_chain!(chain)
     chain << Account.site_admin unless chain.last.site_admin?
     chain
@@ -711,6 +747,10 @@ class Account < ActiveRecord::Base
     result = @account_chain.dup
     Account.add_site_admin_to_chain!(result) if include_site_admin
     result
+  end
+
+  def account_chain_ids
+    @cached_account_chain_ids ||= Account.account_chain_ids(self)
   end
 
   def account_chain_loop
@@ -808,8 +848,7 @@ class Account < ActiveRecord::Base
   end
 
   def available_custom_roles(include_inactive=false)
-    @role_chain_ids ||= self.account_chain.map(&:id)
-    scope = Role.where(:account_id => @role_chain_ids)
+    scope = Role.where(:account_id => account_chain_ids)
     scope = include_inactive ? scope.not_deleted : scope.active
     scope
   end
@@ -859,7 +898,7 @@ class Account < ActiveRecord::Base
   end
 
   def valid_role?(role)
-    role && (role.built_in? || (self.id == role.account_id) || self.account_chain.map(&:id).include?(role.account_id))
+    role && (role.built_in? || (self.id == role.account_id) || self.account_chain_ids.include?(role.account_id))
   end
 
   def login_handle_name_is_customized?
@@ -968,6 +1007,9 @@ class Account < ActiveRecord::Base
     # any user with an admin enrollment in one of the courses can read
     given { |user| user && self.courses.where(:id => user.enrollments.admin.pluck(:course_id)).exists? }
     can :read
+
+    given { |user| self.grants_right?(user, :lti_add_edit)}
+    can :create_tool_manually
   end
 
   alias_method :destroy_permanently!, :destroy
@@ -1108,6 +1150,12 @@ class Account < ActiveRecord::Base
   define_special_account(:default, 'Default Account') # Account.default
   define_special_account(:site_admin) # Account.site_admin
 
+  def clear_special_account_cache_if_special
+    if self.shard == Shard.birth && Account.special_account_ids.values.map(&:to_i).include?(self.id)
+      Account.clear_special_account_cache!(true)
+    end
+  end
+
   # an opportunity for plugins to load some other stuff up before caching the account
   def precache
   end
@@ -1203,7 +1251,7 @@ class Account < ActiveRecord::Base
     end
   end
 
-  def update_all_update_account_associations
+  def self.update_all_update_account_associations
     Account.root_accounts.active.find_each(&:update_account_associations)
   end
 
@@ -1297,17 +1345,7 @@ class Account < ActiveRecord::Base
 
   def external_tool_tabs(opts)
     tools = ContextExternalTool.active.find_all_for(self, :account_navigation)
-    tools.sort_by(&:id).map do |tool|
-     {
-        :id => tool.asset_string,
-        :label => tool.label_for(:account_navigation, opts[:language] || I18n.locale),
-        :css_class => tool.asset_string,
-        :visibility => tool.account_navigation(:visibility),
-        :href => :account_external_tool_path,
-        :external => true,
-        :args => [self.id, tool.id]
-     }
-    end
+    Lti::ExternalToolTab.new(self, :account_navigation, tools, opts[:language]).tabs
   end
 
   def tabs_available(user=nil, opts={})
@@ -1326,8 +1364,6 @@ class Account < ActiveRecord::Base
       tabs << { :id => TAB_AUTHENTICATION, :label => t('#account.tab_authentication', "Authentication"), :css_class => 'authentication', :href => :account_authentication_providers_path } if root_account? && manage_settings
       tabs << { :id => TAB_PLUGINS, :label => t("#account.tab_plugins", "Plugins"), :css_class => "plugins", :href => :plugins_path, :no_args => true } if root_account? && self.grants_right?(user, :manage_site_settings)
       tabs << { :id => TAB_JOBS, :label => t("#account.tab_jobs", "Jobs"), :css_class => "jobs", :href => :jobs_path, :no_args => true } if root_account? && self.grants_right?(user, :view_jobs)
-      tabs << { :id => TAB_BRAND_CONFIGS, :label => t('#account.tab_brand_configs', "Themes"), :css_class => 'brand_configs', :href => :account_brand_configs_path } if manage_settings && (root_account.feature_enabled?(:use_new_styles) || root_account.feature_enabled?(:k12)) && branding_allowed?
-      tabs << { :id => TAB_DEVELOPER_KEYS, :label => t("#account.tab_developer_keys", "Developer Keys"), :css_class => "developer_keys", :href => :developer_keys_path, :no_args => true } if root_account? && self.grants_right?(user, :manage_developer_keys)
     else
       tabs = []
       if feature_enabled?(:course_user_search)
@@ -1352,9 +1388,11 @@ class Account < ActiveRecord::Base
         tabs << { id: TAB_SIS_IMPORT, label: t('#account.tab_sis_import', "SIS Import"),
                   css_class: 'sis_import', href: :account_sis_import_path }
       end
-      tabs << { :id => TAB_BRAND_CONFIGS, :label => t('#account.tab_brand_configs', "Themes"), :css_class => 'brand_configs', :href => :account_brand_configs_path } if manage_settings && (root_account.feature_enabled?(:use_new_styles) || root_account.feature_enabled?(:k12)) && branding_allowed?
-      tabs << { :id => TAB_DEVELOPER_KEYS, :label => t("#account.tab_developer_keys", "Developer Keys"), :css_class => "developer_keys", :href => :account_developer_keys_path, account_id: root_account.id } if root_account? && root_account.grants_right?(user, :manage_developer_keys)
     end
+
+    tabs << { :id => TAB_BRAND_CONFIGS, :label => t('#account.tab_brand_configs', "Themes"), :css_class => 'brand_configs', :href => :account_brand_configs_path } if manage_settings && branding_allowed?
+    tabs << { :id => TAB_DEVELOPER_KEYS, :label => t("#account.tab_developer_keys", "Developer Keys"), :css_class => "developer_keys", :href => :account_developer_keys_path, account_id: root_account.id } if root_account? && self.grants_right?(user, :manage_developer_keys)
+
     tabs += external_tool_tabs(opts)
     tabs += Lti::MessageHandler.lti_apps_tabs(self, [Lti::ResourcePlacement::ACCOUNT_NAVIGATION], opts)
     tabs << { :id => TAB_ADMIN_TOOLS, :label => t('#account.tab_admin_tools', "Admin Tools"), :css_class => 'admin_tools', :href => :account_admin_tools_path } if can_see_admin_tools_tab?(user)
@@ -1376,7 +1414,24 @@ class Account < ActiveRecord::Base
   end
 
   def help_links
-    Canvas::Help.default_links + (settings[:custom_help_links] || [])
+    links = settings[:custom_help_links]
+
+    # set the type to custom for any existing custom links that don't have a type set
+    # the new ui will set the type ('custom' or 'default') for any new custom links
+    # since we now allow reordering the links, the default links get stored in the settings as well
+    if !links.blank?
+      links.each do |link|
+        if link[:type].blank?
+          link[:type] = 'custom'
+        end
+      end
+    end
+
+    if settings[:new_custom_help_links]
+      links || Account::HelpLinks.default_links
+    else
+      Account::HelpLinks.default_links + (links || [])
+    end
   end
 
   def set_service_availability(service, enable)
@@ -1525,10 +1580,6 @@ class Account < ActiveRecord::Base
   scope :processing_sis_batch, -> { where("accounts.current_sis_batch_id IS NOT NULL").order(:updated_at) }
   scope :name_like, lambda { |name| where(wildcard('accounts.name', name)) }
   scope :active, -> { where("accounts.workflow_state<>'deleted'") }
-
-  def canvas_network_enabled?
-    false
-  end
 
   def change_root_account_setting!(setting_name, new_value)
     root_account.settings[setting_name] = new_value

@@ -5,7 +5,6 @@ define [
   'compiled/views/DialogBaseView'
   'compiled/views/courses/roster/RosterDialogMixin'
   'jst/courses/roster/LinkToStudentsView'
-  'compiled/jquery.whenAll'
   'jquery.disableWhileLoading'
 ], (I18n, $, _, DialogBaseView, RosterDialogMixin, linkToStudentsViewTemplate) ->
 
@@ -52,7 +51,7 @@ define [
       this
 
     getUserData: (id) ->
-      $.get("/api/v1/courses/#{ENV.course.id}/users/#{id}", include:['enrollments'])
+      $.getJSON("/api/v1/courses/#{ENV.course.id}/users/#{id}", include:['enrollments'])
 
     update: (e) =>
       e.preventDefault()

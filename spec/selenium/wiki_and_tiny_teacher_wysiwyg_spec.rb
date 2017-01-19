@@ -335,6 +335,32 @@ describe "Wiki pages and Tiny WYSIWYG editor features" do
       end
     end
 
+    it "should be able to add links to new wiki pages with special characters in title" do
+      title = "this/is a weird-a%% page titlé?"
+
+      get "/courses/#{@course.id}/pages/front-page/edit"
+      wait_for_tiny(f("form.edit-form .edit-content"))
+
+      f('#new_page_link').click
+      expect(f('#new_page_name')).to be_displayed
+      f('#new_page_name').send_keys(title)
+      submit_form("#new_page_drop_down")
+
+      in_frame wiki_page_body_ifr_id do
+        link = f('#tinymce p a')
+        expect(link.text).to eq title
+      end
+
+      expect_new_page_load { f('form.edit-form button.submit').click }
+
+      expect_new_page_load{ f('.user_content a').click }
+
+      # should bring up the creation page for the new page
+
+      new_title = driver.execute_script("return $('#title')[0].value")
+      expect(new_title).to eq title
+    end
+
     it "should change paragraph type to preformatted" do
       text = "<p>This is a sample paragraph</p><p>This is a test</p><p>I E O U A</p>"
       wysiwyg_state_setup(text, html: true)
@@ -494,6 +520,7 @@ describe "Wiki pages and Tiny WYSIWYG editor features" do
     end
 
     it "should add an equation to the rce by using the equation editor", priority: "2", test_id: 397972 do
+      skip('this test depends on codecogs.com.  needs to be rewritten: CNVS-33123')
       equation_text = '\\text{yay math stuff:}\\:\\frac{d}{dx}\\sqrt{x}=\\frac{d}{dx}x^{\\frac{1}{2}}=\\frac{1}{2}x^{-\\frac{1}{2}}=\\frac{1}{2\\sqrt{x}}\\text{that. is. so. cool.}'
 
       get "/courses/#{@course.id}/pages/front-page/edit"
@@ -547,6 +574,7 @@ describe "Wiki pages and Tiny WYSIWYG editor features" do
     end
 
     it "should add an equation to the rce by using the equation editor in advanced view" do
+      skip('this test depends on codecogs.com.  needs to be rewritten: CNVS-33123')
       equation_text = '\\text{yay math stuff:}\\:\\frac{d}{dx}\\sqrt{x}=\\frac{d}{dx}x^{\\frac{1}{2}}= \\frac{1}{2}x^{-\\frac{1}{2}}=\\frac{1}{2\\sqrt{x}}\\text{that. is. so. cool.}'
 
       get "/courses/#{@course.id}/pages/front-page/edit"
@@ -587,6 +615,7 @@ describe "Wiki pages and Tiny WYSIWYG editor features" do
     end
 
     it 'should not throw page error with invalid LaTex on assignments', priority: "2", test_id: 237012 do
+      skip('this test depends on codecogs.com.  needs to be rewritten: CNVS-33123')
       Assignment.new.tap do |a|
         a.id = 1
         a.title = 'test assignment'
@@ -605,6 +634,7 @@ describe "Wiki pages and Tiny WYSIWYG editor features" do
     end
 
     it 'should not throw page error with invalid LaTex on discussions', priority: "2", test_id: 237013 do
+      skip('this test depends on codecogs.com.  needs to be rewritten: CNVS-33123')
       DiscussionTopic.new.tap do |d|
         d.id = 1
         d.title = 'test discussion'

@@ -8,8 +8,15 @@ define([
   'jsx/files/UploadDropZone',
   'jsx/files/ColumnHeaders',
   'jsx/files/CurrentUploads',
-  'jsx/files/LoadingIndicator'
-], function (React, _, I18n, ShowFolder, FilePreview, FolderChild, UploadDropZone, ColumnHeaders, CurrentUploads, LoadingIndicator) {
+  'jsx/files/LoadingIndicator',
+  'page',
+  'compiled/react_files/modules/FocusStore'
+], function (React, _, I18n, ShowFolder, FilePreview, FolderChild, UploadDropZone, ColumnHeaders, CurrentUploads, LoadingIndicator, page, FocusStore) {
+
+  ShowFolder.closeFilePreview = function (url) {
+    page(url)
+    FocusStore.setFocusToItem();
+  }
 
   ShowFolder.renderFilePreview = function () {
     /* Prepare and render the FilePreview if needed.
@@ -25,6 +32,7 @@ define([
           query={this.props.query}
           pathname={this.props.pathname}
           splat={this.props.splat}
+          closePreview={this.closeFilePreview}
         />
       );
     }
@@ -48,6 +56,7 @@ define([
               isSelected={(_.indexOf(this.props.selectedItems, child)) >= 0}
               toggleSelected={ this.props.toggleItemSelected.bind(null, child) }
               userCanManageFilesForContext={this.props.userCanManageFilesForContext}
+              userCanRestrictFilesForContext={this.props.userCanRestrictFilesForContext}
               usageRightsRequiredForContext={this.props.usageRightsRequiredForContext}
               externalToolsForContext={this.props.externalToolsForContext}
               previewItem={this.props.previewItem.bind(null, child)}

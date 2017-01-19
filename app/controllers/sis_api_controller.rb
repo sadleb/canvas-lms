@@ -56,9 +56,12 @@ class SisApiController < ApplicationController
   #       "integration_data": {
   #         "other_data": "values"
   #       },
+  #       "include_in_final_grade": true,
   #       "assignment_group": {
   #         "id": 12,
-  #         "name": "Assignments Group"
+  #         "name": "Assignments Group",
+  #         "group_weight": 0.0,
+  #         "sis_source_id": "abc123"
   #       }
   #       "sections": [
   #         {
@@ -99,13 +102,13 @@ class SisApiController < ApplicationController
 
   def context
     @context ||=
-        if params[:account_id]
-          api_find(Account, params[:account_id])
-        elsif params[:course_id]
-          api_find(Course, params[:course_id])
-        else
-          fail ActiveRecord::RecordNotFound, 'unknown context type'
-        end
+      if params[:account_id]
+        api_find(Account, params[:account_id])
+      elsif params[:course_id]
+        api_find(Course, params[:course_id])
+      else
+        fail ActiveRecord::RecordNotFound, 'unknown context type'
+      end
   end
 
   def published_course_ids

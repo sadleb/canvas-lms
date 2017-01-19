@@ -2,6 +2,7 @@ define([
   'react',
   'underscore',
   'jquery',
+  'instructure-ui/Button',
   'i18n!grading_periods',
   'convert_case',
   'jsx/grading/GradingPeriodSet',
@@ -14,7 +15,7 @@ define([
   'compiled/api/gradingPeriodSetsApi',
   'compiled/api/enrollmentTermsApi',
   'jquery.instructure_misc_plugins'
-], function(React, _, $, I18n, ConvertCase, GradingPeriodSet, SearchGradingPeriodsField, SearchHelpers, DateHelper, EnrollmentTermsDropdown, NewGradingPeriodSetForm, EditGradingPeriodSetForm, SetsApi, TermsApi) {
+], function(React, _, $, { default: Button }, I18n, ConvertCase, GradingPeriodSet, SearchGradingPeriodsField, SearchHelpers, DateHelper, EnrollmentTermsDropdown, NewGradingPeriodSetForm, EditGradingPeriodSetForm, SetsApi, TermsApi) {
 
   const presentEnrollmentTerms = function(enrollmentTerms) {
     return _.map(enrollmentTerms, term => {
@@ -40,10 +41,6 @@ define([
 
   const getEditGradingPeriodSetRef = function(set) {
     return "edit-grading-period-set-" + set.id;
-  };
-
-  const setFocus = function(ref) {
-    React.findDOMNode(ref).focus();
   };
 
   const { bool, string, shape } = React.PropTypes;
@@ -78,7 +75,7 @@ define([
     componentDidUpdate(prevProps, prevState) {
       if (prevState.editSet.id && (prevState.editSet.id !== this.state.editSet.id)) {
         let set = {id: prevState.editSet.id};
-        setFocus(this.refs[getShowGradingPeriodSetRef(set)].refs.editButton);
+        this.refs[getShowGradingPeriodSetRef(set)].refs.editButton.focus();
       }
     },
 
@@ -89,7 +86,7 @@ define([
         enrollmentTerms: this.associateTermsWithSet(set.id, termIDs),
         showNewSetForm: false
       }, () => {
-        React.findDOMNode(this.refs.addSetFormButton).focus();
+        this.refs.addSetFormButton.focus();
       });
     },
 
@@ -235,18 +232,17 @@ define([
     },
 
     editGradingPeriodSet(set) {
-      let setComponent = this.refs[getShowGradingPeriodSetRef(set)];
       this.setState({ editSet: {id: set.id, saving: false} });
     },
 
     nodeToFocusOnAfterSetDeletion(setID) {
       const index = this.state.sets.findIndex(set => set.id === setID);
       if (index < 1) {
-        return React.findDOMNode(this.refs.addSetFormButton);
+        return this.refs.addSetFormButton;
       } else {
         const setRef = getShowGradingPeriodSetRef(this.state.sets[index - 1]);
         const setToFocus = this.refs[setRef];
-        return React.findDOMNode(setToFocus.refs.title);
+        return setToFocus.refs.title;
       }
     },
 
@@ -274,7 +270,7 @@ define([
 
     closeNewSetForm() {
       this.setState({ showNewSetForm: false }, () => {
-        React.findDOMNode(this.refs.addSetFormButton).focus();
+        this.refs.addSetFormButton.focus();
       });
     },
 
@@ -383,17 +379,17 @@ define([
       let disable = this.state.showNewSetForm || !!this.state.editSet.id;
       if (!this.props.readOnly) {
         return (
-          <button
+          <Button
             ref            = 'addSetFormButton'
-            className      = {disable ? 'Button Button--primary disabled' : 'Button Button--primary'}
-            aria-disabled  = {disable}
+            variant        = 'primary'
+            disabled       = {disable}
             onClick        = {this.openNewSetForm}
             aria-label     = {I18n.t("Add Set of Grading Periods")}
           >
             <i className="icon-plus"/>
             &nbsp;
             <span aria-hidden="true">{I18n.t("Set of Grading Periods")}</span>
-          </button>
+          </Button>
         );
       }
     },

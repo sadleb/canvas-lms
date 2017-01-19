@@ -17,6 +17,7 @@
 #
 
 require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
+require_relative '../../sharding_spec_helper'
 
 describe CalendarEventsApiController, type: :request do
   before :once do
@@ -26,7 +27,7 @@ describe CalendarEventsApiController, type: :request do
 
   context 'events' do
     expected_fields = [
-      'all_day', 'all_day_date', 'child_events', 'child_events_count', 'comments',
+      'all_context_codes', 'all_day', 'all_day_date', 'child_events', 'child_events_count', 'comments',
       'context_code', 'created_at', 'description', 'duplicates', 'end_at', 'hidden', 'html_url',
       'id', 'location_address', 'location_name', 'parent_event_id', 'start_at',
       'title', 'type', 'updated_at', 'url', 'workflow_state'
@@ -150,7 +151,7 @@ describe CalendarEventsApiController, type: :request do
       expect(json.size).to eql 1
     end
 
-    it 'should return events from up to 10 contexts' do
+    it 'should return events from up to 10 contexts by default' do
       contexts = [@course.asset_string]
       course_ids = create_courses(15, enroll_user: @me)
       create_records(CalendarEvent, course_ids.map{ |id| {context_id: id, context_type: 'Course', context_code: "course_#{id}", title: "#{id}", start_at: '2012-01-08 12:00:00', workflow_state: 'active'}})
@@ -159,6 +160,33 @@ describe CalendarEventsApiController, type: :request do
         :controller => 'calendar_events_api', :action => 'index', :format => 'json',
         :context_codes => contexts, :start_date => '2012-01-08', :end_date => '2012-01-07', :per_page => '25'})
       expect(json.size).to eql 9 # first context has no events
+    end
+
+    it 'should return events from contexts up to the account limit setting' do
+      contexts = [@course.asset_string]
+      Account.default.settings[:calendar_contexts_limit] = 15
+      Account.default.save!
+      course_ids = create_courses(20, enroll_user: @me)
+      create_records(CalendarEvent, course_ids.map{ |id| {context_id: id, context_type: 'Course', context_code: "course_#{id}", title: "#{id}", start_at: '2012-01-08 12:00:00', workflow_state: 'active'}})
+      contexts.concat course_ids.map{ |id| "course_#{id}" }
+      json = api_call(:get, "/api/v1/calendar_events?start_date=2012-01-08&end_date=2012-01-07&per_page=25&context_codes[]=" + contexts.join("&context_codes[]="), {
+        :controller => 'calendar_events_api', :action => 'index', :format => 'json',
+        :context_codes => contexts, :start_date => '2012-01-08', :end_date => '2012-01-07', :per_page => '25'})
+      expect(json.size).to eql 14 # first context has no events
+    end
+
+    it 'does not count appointment groups against the context limit' do
+      Account.default.settings[:calendar_contexts_limit] = 1
+      Account.default.save!
+      group1 = AppointmentGroup.create!(:title => "something", :participants_per_appointment => 4, :new_appointments => [["2012-01-01 12:00:00", "2012-01-01 13:00:00"]], :contexts => [@course])
+      group1.publish!
+      contexts = [@course, group1].map(&:asset_string)
+      student_in_course :active_all => true
+      json = api_call(:get, "/api/v1/calendar_events?start_date=2012-01-01&end_date=2012-01-02&per_page=25&context_codes[]=" + contexts.join("&context_codes[]="), {
+        :controller => 'calendar_events_api', :action => 'index', :format => 'json',
+        :context_codes => contexts, :start_date => '2012-01-01', :end_date => '2012-01-02', :per_page => '25'})
+      slot = json.detect { |thing| thing['appointment_group_id'] == group1.id }
+      expect(slot).not_to be_nil
     end
 
     it 'should fail with unauthorized if provided a context the user cannot access' do
@@ -185,6 +213,36 @@ describe CalendarEventsApiController, type: :request do
                       {:start_date => 2.days.ago.strftime("%Y-%m-%d"), :end_date => 2.days.from_now.strftime("%Y-%m-%d"), :context_codes => ["course_#{unrelated_course.id}"]})
       expect(json.size).to eq 1
       expect(json.first['title']).to eq "from unrelated one"
+    end
+
+    it "should allow account admins to view section-specific events" do
+      event = @course.calendar_events.build(:title => 'event', :child_event_data =>
+        {"0" => {:start_at => "2012-01-09 12:00:00", :end_at => "2012-01-09 13:00:00", :context_code => @course.default_section.asset_string}})
+      event.updating_user = @teacher
+      event.save!
+      account_admin_user(:active_all => true)
+
+      json = api_call(:get, "/api/v1/calendar_events?start_date=2012-01-07&end_date=2012-01-19&context_codes[]=course_#{@course.id}", {
+        :controller => 'calendar_events_api', :action => 'index', :format => 'json',
+        :context_codes => ["course_#{@course.id}"], :start_date => '2012-01-07', :end_date => '2012-01-19'})
+
+      expect(json.detect{|e| e['id'] == event.child_events.first.id}).to be_present
+    end
+
+    it "doesn't allow account admins to view events for courses they don't have access to" do
+      sub_account1 = Account.default.sub_accounts.create!
+      course_with_teacher(:active_all => true, :account => sub_account1)
+      event = @course.calendar_events.build(:title => 'event', :child_event_data =>
+        {"0" => {:start_at => "2012-01-09 12:00:00", :end_at => "2012-01-09 13:00:00", :context_code => @course.default_section.asset_string}})
+      event.updating_user = @teacher
+      event.save!
+
+      sub_account2 = Account.default.sub_accounts.create!
+      account_admin_user(:active_all => true, :account => sub_account2)
+
+      api_call(:get, "/api/v1/calendar_events?start_date=2012-01-07&end_date=2012-01-19&context_codes[]=course_#{@course.id}", {
+        :controller => 'calendar_events_api', :action => 'index', :format => 'json',
+        :context_codes => ["course_#{@course.id}"], :start_date => '2012-01-07', :end_date => '2012-01-19'}, {}, {}, {:expected_status => 401})
     end
 
     def public_course_query(options = {})
@@ -224,6 +282,14 @@ describe CalendarEventsApiController, type: :request do
       @user = nil
       public_course_query() do |c|
         c.public_syllabus = true
+      end
+    end
+
+    it "should not allow anonymous users to access a public for authenticated syllabus" do
+      @user = nil
+      public_course_query(:opts => {:expected_status => 401}) do |c|
+        c.public_syllabus = false
+        c.public_syllabus_to_auth = true
       end
     end
 
@@ -607,6 +673,17 @@ describe CalendarEventsApiController, type: :request do
             expect(error['reservations'].size).to eql 0
           end
 
+          context "sharding" do
+            specs_require_sharding
+
+            it "should allow students to specify themselves as the participant" do
+              short_form_id = "#{Shard.current.id}~#{@user.id}"
+              api_call(:post, "/api/v1/calendar_events/#{@event1.id}/reservations/#{short_form_id}", {
+                :controller => 'calendar_events_api', :action => 'reserve', :format => 'json', :id => @event1.id.to_s, :participant_id => short_form_id})
+              expect(response).to be_success
+            end
+          end
+
           it "should notify the teacher when appointment is canceled" do
             json = api_call(:post, "/api/v1/calendar_events/#{@event1.id}/reservations", {
               :controller => 'calendar_events_api',
@@ -752,6 +829,75 @@ describe CalendarEventsApiController, type: :request do
       end
     end
 
+    describe 'moving events between calendars' do
+      it 'moves an event from a user to a course' do
+        event = @user.calendar_events.create!(:title => 'event', :start_at => '2012-01-08 12:00:00')
+        json = api_call(:put, "/api/v1/calendar_events/#{event.id}",
+                        {:controller => 'calendar_events_api', :action => 'update', :id => event.to_param, :format => 'json'},
+                        {:calendar_event => {:context_code => @course.asset_string}})
+        expect(json['context_code']).to eq @course.asset_string
+        expect(event.reload.context).to eq @course
+      end
+
+      it 'moves an event from a course to a user' do
+        event = @course.calendar_events.create!(:title => 'event', :start_at => '2012-01-08 12:00:00')
+        json = api_call(:put, "/api/v1/calendar_events/#{event.id}",
+                        {:controller => 'calendar_events_api', :action => 'update', :id => event.to_param, :format => 'json'},
+                        {:calendar_event => {:context_code => @user.asset_string}})
+        expect(json['context_code']).to eq @user.asset_string
+        expect(event.reload.context).to eq @user
+      end
+
+      context 'section-specific times' do
+        before :once do
+          @event = @course.calendar_events.build(:title => "test", :child_event_data => [{:start_at => "2012-01-01", :end_at => "2012-01-02", :context_code => @course.default_section.asset_string}])
+          @event.updating_user = @user
+          @event.save!
+        end
+
+        it 'refuses to move a parent event' do
+          json = api_call(:put, "/api/v1/calendar_events/#{@event.id}",
+                          {:controller => 'calendar_events_api', :action => 'update', :id => @event.to_param, :format => 'json'},
+                          {:calendar_event => {:context_code => @user.asset_string}}, {}, { :expected_status => 400 })
+          expect(json['message']).to include 'Cannot move events with section-specific times'
+        end
+
+        it 'refuses to move a child event' do
+          child_event = @event.child_events.first
+          expect(child_event).to be_present
+          json = api_call(:put, "/api/v1/calendar_events/#{child_event.id}",
+                          {:controller => 'calendar_events_api', :action => 'update', :id => child_event.to_param, :format => 'json'},
+                          {:calendar_event => {:context_code => @user.asset_string}}, {}, { :expected_status => 400 })
+          expect(json['message']).to include 'Cannot move events with section-specific times'
+        end
+
+        it "doesn't complain if you 'move' the event into the calendar it's already in" do
+          api_call(:put, "/api/v1/calendar_events/#{@event.id}",
+                          {:controller => 'calendar_events_api', :action => 'update', :id => @event.to_param, :format => 'json'},
+                          {:calendar_event => {:context_code => @course.asset_string}})
+
+        end
+      end
+
+      it 'refuses to move a Scheduler appointment' do
+        ag = AppointmentGroup.create!(:title => "something", :participants_per_appointment => 4, :new_appointments => [["2012-01-01 12:00:00", "2012-01-01 13:00:00"]], :contexts => [@course])
+        ag.publish!
+        appointment = ag.appointments.first
+        json = api_call(:put, "/api/v1/calendar_events/#{appointment.id}",
+                        {:controller => 'calendar_events_api', :action => 'update', :id => appointment.to_param, :format => 'json'},
+                        {:calendar_event => {:context_code => @user.asset_string}}, {}, { :expected_status => 400 })
+        expect(json['message']).to include 'Cannot move Scheduler appointments'
+      end
+
+      it 'verifies the caller has permission to create the event in the destination context' do
+        other_course = Course.create!
+        event = @course.calendar_events.create!(:title => 'event', :start_at => '2012-01-08 12:00:00')
+        api_call(:put, "/api/v1/calendar_events/#{event.id}",
+                        {:controller => 'calendar_events_api', :action => 'update', :id => event.to_param, :format => 'json'},
+                        {:calendar_event => {:context_code => other_course.asset_string}}, {}, { :expected_status => 401 })
+      end
+    end
+
     it 'should delete an event' do
       event = @course.calendar_events.create(:title => 'event', :start_at => '2012-01-08 12:00:00')
       json = api_call(:delete, "/api/v1/calendar_events/#{event.id}",
@@ -791,6 +937,15 @@ describe CalendarEventsApiController, type: :request do
       cal = Icalendar.parse(response.body.dup)[0]
       expect(cal.events[0].description).to eq nil
       expect(cal.events[0].x_alt_desc).to eq nil
+    end
+
+    it 'works when event descriptions contain paths to user attachments' do
+      attachment_with_context(@user)
+      @user.calendar_events.create!(description: "/users/#{@user.id}/files/#{@attachment.id}", start_at: Time.now)
+      json = api_call(:get, "/api/v1/calendar_events", {
+        :controller => 'calendar_events_api', :action => 'index', :format => 'json'
+      })
+      expect(response).to be_success
     end
 
     context "child_events" do
@@ -1887,7 +2042,6 @@ describe CalendarEventsApiController, type: :request do
     it 'includes custom colors' do
       @user.custom_colors[@course.asset_string] = '#0099ff'
       @user.save!
-      puts @user.inspect
 
       json = api_call(:get, '/api/v1/calendar_events/visible_contexts', {
         controller: 'calendar_events_api',
@@ -1915,6 +2069,161 @@ describe CalendarEventsApiController, type: :request do
         c['asset_string'] == @course.asset_string
       end
       expect(context['selected']).to be(true)
+    end
+
+    it 'includes course sections' do
+      @section = @course.course_sections.try(:first)
+
+      json = api_call(:get, '/api/v1/calendar_events/visible_contexts', {
+        controller: 'calendar_events_api',
+        action: 'visible_contexts',
+        format: 'json'
+      })
+
+      context = json['contexts'].find do |c|
+        c['sections'] && c['sections'].find do |s|
+          s['id'] == @section.id.to_s
+        end
+      end
+      expect(context).not_to be_nil
+    end
+  end
+
+  describe '#set_course_timetable' do
+    before :once do
+      @path = "/api/v1/courses/#{@course.id}/calendar_events/timetable"
+      @course.start_at = DateTime.parse("2016-05-06 1:00pm -0600")
+      @course.conclude_at = DateTime.parse("2016-05-19 9:00am -0600")
+      @course.time_zone = 'America/Denver'
+      @course.save!
+    end
+
+    it "should check for valid options" do
+      timetables = {"all" => [{:weekdays => "moonday", :start_time => "not a real time", :end_time => "this either"}]}
+      json = api_call(:post, @path, {
+        :course_id => @course.id.to_param, :controller => 'calendar_events_api',
+        :action => 'set_course_timetable', :format => 'json'
+      }, {:timetables => timetables}, {}, {:expected_status => 400})
+
+      expect(json['errors']).to match_array(["invalid start time(s)", "invalid end time(s)", "weekdays are not valid"])
+    end
+
+    it "should create course-level events" do
+      location_name = 'best place evr'
+      timetables = {"all" => [{:weekdays => "monday, thursday", :start_time => "2:00 pm",
+        :end_time => "3:30 pm", :location_name => location_name}]}
+
+      expect {
+        json = api_call(:post, @path, {
+          :course_id => @course.id.to_param, :controller => 'calendar_events_api',
+          :action => 'set_course_timetable', :format => 'json'
+        }, {:timetables => timetables})
+      }.to change(Delayed::Job, :count).by(1)
+
+      run_jobs
+
+      expected_events = [
+        { :start_at => DateTime.parse("2016-05-09 2:00 pm -0600"), :end_at => DateTime.parse("2016-05-09 3:30 pm -0600")},
+        { :start_at => DateTime.parse("2016-05-12 2:00 pm -0600"), :end_at => DateTime.parse("2016-05-12 3:30 pm -0600")},
+        { :start_at => DateTime.parse("2016-05-16 2:00 pm -0600"), :end_at => DateTime.parse("2016-05-16 3:30 pm -0600")}
+      ]
+      events = @course.calendar_events.for_timetable.to_a
+      expect(events.map{|e| {:start_at => e.start_at, :end_at => e.end_at}}).to match_array(expected_events)
+      expect(events.map(&:location_name).uniq).to eq [location_name]
+    end
+
+    it "should create section-level events" do
+      section1 = @course.course_sections.create!
+      section2 = @course.course_sections.new
+      section2.sis_source_id = "sisss" # can even find by sis id, yay!
+      section2.end_at = DateTime.parse("2016-05-25 9:00am -0600") # and also extend dates on the section
+      section2.save!
+
+      timetables = {
+        section1.id => [{:weekdays => "Mon", :start_time => "2:00 pm", :end_time => "3:30 pm"}],
+        "sis_section_id:#{section2.sis_source_id}" => [{:weekdays => "Thu", :start_time => "3:30 pm", :end_time => "4:30 pm"}]
+      }
+
+      expect {
+        json = api_call(:post, @path, {
+          :course_id => @course.id.to_param, :controller => 'calendar_events_api',
+          :action => 'set_course_timetable', :format => 'json'
+        }, {:timetables => timetables})
+      }.to change(Delayed::Job, :count).by(2)
+
+      run_jobs
+
+      expected_events1 = [
+        { :start_at => DateTime.parse("2016-05-09 2:00 pm -0600"), :end_at => DateTime.parse("2016-05-09 3:30 pm -0600")},
+        { :start_at => DateTime.parse("2016-05-16 2:00 pm -0600"), :end_at => DateTime.parse("2016-05-16 3:30 pm -0600")}
+      ]
+      events1 = section1.calendar_events.for_timetable.to_a
+      expect(events1.map{|e| {:start_at => e.start_at, :end_at => e.end_at}}).to match_array(expected_events1)
+
+      expected_events2 = [
+        { :start_at => DateTime.parse("2016-05-12 3:30 pm -0600"), :end_at => DateTime.parse("2016-05-12 4:30 pm -0600")},
+        { :start_at => DateTime.parse("2016-05-19 3:30 pm -0600"), :end_at => DateTime.parse("2016-05-19 4:30 pm -0600")}
+      ]
+      events2 = section2.calendar_events.for_timetable.to_a
+      expect(events2.map{|e| {:start_at => e.start_at, :end_at => e.end_at}}).to match_array(expected_events2)
+    end
+
+    it "should be able to retrieve the timetable afterwards" do
+      timetables = {"all" => [{:weekdays => "monday, thursday", :start_time => "2:00 pm", :end_time => "3:30 pm"}]}
+
+      #set the timetables
+      api_call(:post, @path, {
+        :course_id => @course.id.to_param, :controller => 'calendar_events_api',
+        :action => 'set_course_timetable', :format => 'json'
+      }, {:timetables => timetables})
+
+      json = api_call(:get, @path, {
+        :course_id => @course.id.to_param, :controller => 'calendar_events_api',
+        :action => 'get_course_timetable', :format => 'json'
+      })
+
+      expected = {"all" => [{'weekdays' => "Mon,Thu", 'start_time' => "2:00 pm", 'end_time' => "3:30 pm",
+        'course_start_at' => @course.start_at.iso8601, 'course_end_at' => @course.end_at.iso8601}]}
+      expect(json).to eq expected
+    end
+  end
+
+  describe '#set_course_timetable_events' do
+    before :once do
+      @path = "/api/v1/courses/#{@course.id}/calendar_events/timetable_events"
+      @events = [
+        { :start_at => DateTime.parse("2016-05-09 2:00 pm -0600"), :end_at => DateTime.parse("2016-05-09 3:30 pm -0600")},
+        { :start_at => DateTime.parse("2016-05-12 2:00 pm -0600"), :end_at => DateTime.parse("2016-05-12 3:30 pm -0600")},
+      ]
+    end
+
+    it "should be able to create a bunch of events directly from a list" do
+      expect {
+        api_call(:post, @path, {
+          :course_id => @course.id.to_param, :controller => 'calendar_events_api',
+          :action => 'set_course_timetable_events', :format => 'json'
+        }, {:events => @events})
+      }.to change(Delayed::Job, :count).by(1)
+
+      run_jobs
+
+      events = @course.calendar_events.for_timetable.to_a
+      expect(events.map{|e| {:start_at => e.start_at, :end_at => e.end_at}}).to match_array(@events)
+    end
+
+    it "should be able to create events for a course section" do
+      section = @course.course_sections.create!
+      expect {
+        api_call(:post, @path, {
+          :course_id => @course.id.to_param, :controller => 'calendar_events_api',
+          :action => 'set_course_timetable_events', :format => 'json'
+        }, {:events => @events, :course_section_id => section.id.to_param})
+      }.to change(Delayed::Job, :count).by(1)
+
+      run_jobs
+
+      events = section.calendar_events.for_timetable.to_a
+      expect(events.map{|e| {:start_at => e.start_at, :end_at => e.end_at}}).to match_array(@events)
     end
   end
 end

@@ -206,7 +206,7 @@ module AccountReports
       end
 
       generate_and_run_report headers do |csv|
-        terms.each do |t|
+        terms.find_each do |t|
           row = []
           row << t.id unless @sis_format
           row << t.sis_source_id
@@ -398,6 +398,7 @@ module AccountReports
         headers << I18n.t('#account_reports.report_header_canvas_associated_user_id', 'canvas_associated_user_id')
         headers << I18n.t('#account_reports.report_header_associated_user_id', 'associated_user_id')
         headers << I18n.t('created_by_sis')
+        headers << I18n.t('base_role_type')
       end
       enrol = root_account.enrollments.
         select("enrollments.*, courses.sis_source_id AS course_sis_id,
@@ -470,6 +471,7 @@ module AccountReports
           row << e.associated_user_id unless @sis_format
           row << e.ob_sis_id
           row << e.sis_batch_id? unless @sis_format
+          row << e.type unless @sis_format
           csv << row
         end
       end

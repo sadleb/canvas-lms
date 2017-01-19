@@ -17,6 +17,30 @@ describe "calendar2" do
       course_with_teacher_logged_in
     end
 
+    context "with Better Scheduler enabled" do
+      before(:each) do
+        account = Account.default
+        account.enable_feature! :better_scheduler
+      end
+
+      it "should let me go to the Edit Appointment group page from the appointment group slot dialog" do
+        date = Date.today.to_s
+        create_appointment_group :new_appointments => [
+                                     ["#{date} 12:00:00", "#{date} 13:00:00"],
+                                     ["#{date} 13:00:00", "#{date} 14:00:00"],
+                                 ]
+
+        get '/calendar2'
+
+        f('.fc-event').click
+        wait_for_ajaximations
+        expect_new_page_load { f('.group_details').click }
+        wait_for_ajaximations
+        expect(driver.current_url).to include("appointment_groups/#{AppointmentGroup.last.id}/edit")
+      end
+
+    end
+
     it "should let me message students who have signed up for an appointment" do
       date = Date.today.to_s
       create_appointment_group :new_appointments => [
@@ -139,6 +163,17 @@ describe "calendar2" do
 
         expect(ag.reload.appointments.first.description).to eq description
         expect(f('.fc-event')).to be
+      end
+
+      it "allows moving events between calendars" do
+        event = @user.calendar_events.create! :title => 'blah', :start_at => Date.today
+        get "/calendar2"
+        open_edit_event_dialog
+        f("option[value=course_#{@course.id}]").click
+        submit_form("#edit_calendar_event_form")
+        wait_for_ajaximations
+        expect(event.reload.context).to eq @course
+        expect(f(".fc-event")).to have_class "group_course_#{@course.id}"
       end
     end
 

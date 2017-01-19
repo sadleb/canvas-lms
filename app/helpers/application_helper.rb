@@ -293,13 +293,8 @@ module ApplicationHelper
   end
 
   def css_variant
-    if use_new_styles?
-      variant = 'new_styles'
-    else
-      variant = 'legacy'
-    end
     use_high_contrast = @current_user && @current_user.prefers_high_contrast?
-    variant + (use_high_contrast ? '_high_contrast' : '_normal_contrast')
+    'new_styles' + (use_high_contrast ? '_high_contrast' : '_normal_contrast')
   end
 
   def css_url_for(bundle_name, plugin=false)
@@ -375,19 +370,25 @@ module ApplicationHelper
   end
 
   def active_external_tool_by_id(tool_id)
-    # don't use for groups. they don't have account_chain_ids
-    tool = @context.context_external_tools.active.where(tool_id: tool_id).first
-    return tool if tool
+    @cached_external_tools ||= {}
+    @cached_external_tools[tool_id] ||= Rails.cache.fetch(['active_external_tool_for', @context, tool_id].cache_key, :expires_in => 1.hour) do
+      # don't use for groups. they don't have account_chain_ids
+      tool = @context.context_external_tools.active.where(tool_id: tool_id).first
 
-    # account_chain_ids is in the order we need to search for tools
-    # unfortunately, the db will return an arbitrary one first.
-    # so, we pull all the tools (probably will only have one anyway) and look through them here
-    tools = ContextExternalTool.active.where(:context_type => 'Account', :context_id => @context.account_chain, :tool_id => tool_id).to_a
-    @context.account_chain.each do |account|
-      tool = tools.find {|t| t.context_id == account.id}
-      return tool if tool
+      unless tool
+        # account_chain_ids is in the order we need to search for tools
+        # unfortunately, the db will return an arbitrary one first.
+        # so, we pull all the tools (probably will only have one anyway) and look through them here
+        account_chain_ids = @context.account_chain_ids
+
+        tools = ContextExternalTool.active.where(:context_type => 'Account', :context_id => account_chain_ids, :tool_id => tool_id).to_a
+        account_chain_ids.each do |account_id|
+          tool = tools.find {|t| t.context_id == account_id}
+          break if tool
+        end
+      end
+      tool
     end
-    nil
   end
 
   def external_tool_tab_visible(tool_id)
@@ -401,6 +402,11 @@ module ApplicationHelper
     css_bundle('license_help')
     js_bundle('license_help')
     link_to(image_tag('help.png', :alt => I18n.t("Help with content licensing")), '#', :class => 'license_help_link no-hover', :title => I18n.t("Help with content licensing"))
+  end
+
+  def visibility_help_link
+    js_bundle('visibility_help')
+    link_to(image_tag('help.png', :alt => I18n.t("Help with course visibilities")), '#', :class => 'visibility_help_link no-hover', :title => I18n.t("Help with course visibilities"))
   end
 
   def equella_enabled?
@@ -570,7 +576,7 @@ module ApplicationHelper
     parts.join(t('#title_separator', ': '))
   end
 
-  def cache(name = {}, options = nil, &block)
+  def cache(name = {}, options = {}, &block)
     unless options && options[:no_locale]
       name = name.cache_key if name.respond_to?(:cache_key)
       name = name + "/#{I18n.locale}" if name.is_a?(String)
@@ -581,8 +587,12 @@ module ApplicationHelper
   def map_courses_for_menu(courses, opts={})
     mapped = courses.map do |course|
       tabs = opts[:include_section_tabs] && available_section_tabs(course)
-      presenter = CourseForMenuPresenter.new(course, tabs, @current_user)
+      presenter = CourseForMenuPresenter.new(course, tabs, @current_user, @domain_root_account)
       presenter.to_h
+    end
+
+    if @domain_root_account.feature_enabled?(:dashcard_reordering)
+      mapped = mapped.sort_by {|h| h[:position] || ::CanvasSort::Last}
     end
 
     mapped
@@ -660,13 +670,11 @@ module ApplicationHelper
   end
 
   def help_link_icon
-    (@domain_root_account && @domain_root_account.settings[:help_link_icon]) ||
-      (Account.default && Account.default.settings[:help_link_icon]) || 'help'
+    (@domain_root_account && @domain_root_account.settings[:help_link_icon]) || 'help'
   end
 
   def help_link_name
-    (@domain_root_account && @domain_root_account.settings[:help_link_name]) ||
-      (Account.default && Account.default.settings[:help_link_name]) || I18n.t('Help')
+    (@domain_root_account && @domain_root_account.settings[:help_link_name]) || I18n.t('Help')
   end
 
   def help_link_data
@@ -692,7 +700,7 @@ module ApplicationHelper
   def active_brand_config(opts={})
     return active_brand_config_cache[opts] if active_brand_config_cache.key?(opts)
 
-    ignore_branding = !use_new_styles? || (@current_user.try(:prefers_high_contrast?) && !opts[:ignore_high_contrast_preference])
+    ignore_branding = (@current_user.try(:prefers_high_contrast?) && !opts[:ignore_high_contrast_preference])
     active_brand_config_cache[opts] = if ignore_branding
       nil
     else
@@ -720,7 +728,7 @@ module ApplicationHelper
   end
 
   def brand_config_for_account(opts={})
-    account = Context.get_account(@context)
+    account = Context.get_account(@context || @course)
 
     # for finding which values to show in the theme editor
     if opts[:ignore_parents]
@@ -785,15 +793,13 @@ module ApplicationHelper
 
   def include_account_js(options = {})
     return if params[:global_includes] == '0'
-    includes = if use_new_styles?
-      if @domain_root_account.allow_global_includes? && (abc = active_brand_config(ignore_high_contrast_preference: true))
-        abc.css_and_js_overrides[:js_overrides]
-      end
+
+    includes = if @domain_root_account.allow_global_includes? && (abc = active_brand_config(ignore_high_contrast_preference: true))
+      abc.css_and_js_overrides[:js_overrides]
     else
-      get_global_includes.each_with_object([]) do |global_include, memo|
-        memo << global_include[:js] if global_include[:js].present?
-      end
+      Account.site_admin.brand_config.try(:css_and_js_overrides).try(:[], :js_overrides)
     end
+
     if includes.present?
       if options[:raw]
         includes = ["/optimized/vendor/jquery-1.7.2.js"] + includes
@@ -826,14 +832,10 @@ module ApplicationHelper
   def include_account_css
     return if disable_account_css?
 
-    includes = if use_new_styles?
-      if @domain_root_account.allow_global_includes? && (abc = active_brand_config(ignore_high_contrast_preference: true))
-        abc.css_and_js_overrides[:css_overrides]
-      end
+    includes = if @domain_root_account.allow_global_includes? && (abc = active_brand_config(ignore_high_contrast_preference: true))
+      abc.css_and_js_overrides[:css_overrides]
     else
-      get_global_includes.each_with_object([]) do |global_include, css_includes|
-        css_includes << global_include[:css] if global_include[:css].present?
-      end
+      Account.site_admin.brand_config.try(:css_and_js_overrides).try(:[], :css_overrides)
     end
 
     if includes.present?
@@ -935,16 +937,16 @@ module ApplicationHelper
 
   def translated_due_date(assignment)
     if assignment.multiple_due_dates_apply_to?(@current_user)
-      t('#due_dates.multiple_due_dates', 'due: Multiple Due Dates')
+      t('Due: Multiple Due Dates')
     else
       assignment = assignment.overridden_for(@current_user)
 
       if assignment.due_at
-        t('#due_dates.due_at', 'due: %{assignment_due_date_time}', {
-          :assignment_due_date_time => datetime_string(force_zone(assignment.due_at))
-        })
+        t('Due: %{assignment_due_date_time}',
+          assignment_due_date_time: datetime_string(force_zone(assignment.due_at))
+        )
       else
-        t('#due_dates.no_due_date', 'due: No Due Date')
+        t('Due: No Due Date')
       end
     end
   end
@@ -985,12 +987,17 @@ module ApplicationHelper
   end
 
   def include_custom_meta_tags
+    output = []
     if @meta_tags.present?
-      @meta_tags.
-        map{ |meta_attrs| tag("meta", meta_attrs) }.
-        join("\n").
-        html_safe
+      output = @meta_tags.map{ |meta_attrs| tag("meta", meta_attrs) }
     end
+
+    # set this if you want android users of your site to be prompted to install an android app
+    # you can see an example of the one that instructure uses in public/web-app-manifest/manifest.json
+    manifest_url = Setting.get('web_app_manifest_url', '')
+    output << tag("link", rel: 'manifest', href: manifest_url) if manifest_url.present?
+
+    output.join("\n").html_safe.presence
   end
 
   # Returns true if the current_path starts with the given value
@@ -1001,6 +1008,11 @@ module ApplicationHelper
     else
       request.fullpath.start_with?(to_test)
     end
+  end
+
+  # Determine if url is the current state for the groups sub-nav switcher
+  def group_homepage_pathfinder(group)
+    request.fullpath =~ /groups\/#{group.id}/
   end
 
   def link_to_parent_signup(auth_type)

@@ -12,6 +12,15 @@ module SpeedGraderCommon
     wait_for_ajaximations
   end
 
+  def goto_student(student_name)
+    f("#combo_box_container .ui-selectmenu-icon").click
+    student_selection = ff(".ui-selectmenu-item-header").find do |option|
+      option.text.strip == student_name if option.text
+    end
+    raise ArgumentError, "There is no student named #{student_name}" unless student_selection
+    student_selection.click
+  end
+
   def set_turnitin_asset(asset, asset_data)
     @submission.turnitin_data ||= {}
     @submission.turnitin_data[asset.asset_string] = asset_data
@@ -36,11 +45,6 @@ module SpeedGraderCommon
     @assignment.submit_homework(student, :submission_type => :online_upload, :attachments => [attachment])
   end
 
-  def submit_and_grade_homework(student, grade)
-    @assignment.submit_homework(student)
-    @assignment.grade_student(student, :grade => grade)
-  end
-
   # Creates a dummy rubric and scores its criteria as specified in the parameters (passed as strings)
   def setup_and_grade_rubric(score1, score2)
     student_submission
@@ -59,12 +63,12 @@ module SpeedGraderCommon
   end
 
   def clear_grade_and_validate
-    @assignment.grade_student @students[0], {grade: ''}
-    @assignment.grade_student @students[1], {grade: ''}
+    @assignment.grade_student @students[0], grade: '', grader: @teacher
+    @assignment.grade_student @students[1], grade: '', grader: @teacher
 
     refresh_page
     expect(f('#grading-box-extended')).to have_value ''
-    f('a.next').click
+    f('#next-student-button').click
     expect(f('#grading-box-extended')).to have_value ''
   end
 
@@ -79,5 +83,24 @@ module SpeedGraderCommon
 
     f(selectedStudent).text.include?(@students[new_index].name) &&
         f(studentXofXlabel).text.include?(student_X_of_X_string)
+  end
+
+  def expand_right_pane
+    # attempting to click things that were on the very edge of the page
+    # was causing certain specs to flicker. this fixes that issue by
+    # increasing the width of the right pane
+    driver.execute_script("$('#right_side').width('500px')")
+  end
+
+  def submit_comment(text)
+    f('#speedgrader_comment_textarea').send_keys(text)
+    scroll_into_view('#add_a_comment button[type="submit"]')
+    f('#add_a_comment button[type="submit"]').click
+    wait_for_ajaximations
+  end
+
+  # returns a list of comment strings from right pane
+  def comment_list
+    ff('span.comment').map(&:text)
   end
 end

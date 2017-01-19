@@ -26,7 +26,7 @@ define([
   'str/htmlEscape',
   'jquery.ajaxJSON' /* ajaxJSON */,
   'jquery.instructure_forms' /* getFormData */,
-  'jquery.instructure_misc_helpers' /* replaceTags, scrollSidebar */,
+  'jquery.instructure_misc_helpers' /* replaceTags */,
   'jquery.instructure_misc_plugins' /* showIf */,
   'jquery.templateData' /* fillTemplateData, getTemplateData */,
   'media_comments' /* mediaComment, mediaCommentThumbnail */
@@ -131,7 +131,7 @@ define([
     });
 
     // manages toggling and screenreader focus for comments, scoring, and rubric details
-    $(".toggle_comments_link, .toggle_score_details_link, .toggle_rubric_assessments_link").click(function(event) {
+    $(".toggle_comments_link, .toggle_score_details_link, .toggle_rubric_assessments_link, .toggle_final_grade_info").click(function(event) {
       event.preventDefault();
       var $row = $( '#' + $(this).attr('aria-controls') );
       var originEl = this;
@@ -353,8 +353,6 @@ define([
       updateStudentGrades();
     }).triggerHandler('change');
 
-    $.scrollSidebar();
-
     $("#observer_user_url").change(function() {
       if(location.href != $(this).val()) {
         location.href = $(this).val();
@@ -379,6 +377,7 @@ define([
             $('#comments_thread_' + assignmentId).show();
             $('#rubric_' + assignmentId).show();
             $('#grade_info_' + assignmentId).show();
+            $('#final_grade_info_' + assignmentId).show();
           }
         });
       } else {

@@ -2,6 +2,7 @@ define [
   'jquery'
   'underscore'
   'react'
+  'react-dom'
   'react-modal'
   'jsx/shared/ColorPicker'
   'compiled/userSettings'
@@ -14,7 +15,7 @@ define [
   'compiled/jquery.kylemenu'
   'jquery.instructure_misc_helpers'
   'vendor/jquery.ba-tinypubsub'
-], ($, _, React, ReactModal, ColorPickerComponent, userSettings, contextListTemplate, undatedEventsTemplate, commonEventFactory, EditEventDetailsDialog, EventDataSource, forceScreenreaderToReparse) ->
+], ($, _, React, ReactDOM, ReactModal, ColorPickerComponent, userSettings, contextListTemplate, undatedEventsTemplate, commonEventFactory, EditEventDetailsDialog, EventDataSource, forceScreenreaderToReparse) ->
   ColorPicker = React.createFactory(ColorPickerComponent)
 
   class VisibleContextManager
@@ -30,12 +31,13 @@ define [
       @contexts or= availableContexts
 
       @contexts = _.intersection(@contexts, availableContexts)
-      @contexts = @contexts.slice(0, 10)
+      @contexts = @contexts.slice(0, ENV.CALENDAR.VISIBLE_CONTEXTS_LIMIT)
 
       @notify()
 
       $.subscribe 'Calendar/saveVisibleContextListAndClear', @saveAndClear
       $.subscribe 'Calendar/restoreVisibleContextList', @restoreList
+      $.subscribe 'Calendar/ensureCourseVisible', @ensureCourseVisible
 
     saveAndClear: () =>
       if !@savedContexts
@@ -49,13 +51,17 @@ define [
         @savedContexts = null
         @notifyOnChange()
 
+    ensureCourseVisible: (context) =>
+      if $.inArray(context, @contexts) < 0
+        @toggle(context)
+
     toggle: (context) ->
       index = $.inArray context, @contexts
       if index >= 0
         @contexts.splice index, 1
       else
         @contexts.push context
-        @contexts.shift() if @contexts.length > 10
+        @contexts.shift() if @contexts.length > ENV.CALENDAR.VISIBLE_CONTEXTS_LIMIT
       @notifyOnChange()
 
     notifyOnChange: =>
@@ -77,10 +83,29 @@ define [
 
       userSettings.set('checked_calendar_codes', @contexts)
 
+  setupCalendarFeedsWithSpecialAccessibilityConsiderationsForNVDA = ->
+    $calendarFeedModalContent = $('#calendar_feed_box')
+    $calendarFeedModalOpener = $('.dialog_opener[aria-controls="calendar_feed_box"]')
+    # We need to get the modal initialized early rather than wait for
+    # .dialog_opener to open it so we can attach the event to it the first
+    # time.  We extend so that we still get all the magic that .dialog_opener
+    # should give us.
+    $calendarFeedModalContent.dialog($.extend({
+      autoOpen: false,
+      modal: true
+    }, $calendarFeedModalOpener.data('dialogOpts')))
+
+    $calendarFeedModalContent.on('dialogclose', ->
+      forceScreenreaderToReparse($('#application')[0])
+    )
+
+
   return sidebar = (contexts, selectedContexts, dataSource) ->
     $holder   = $('#context-list-holder')
     $skipLink = $('.skip-to-calendar')
     $colorPickerBtn = $('.ContextList__MoreBtn')
+
+    setupCalendarFeedsWithSpecialAccessibilityConsiderationsForNVDA()
 
     $holder.html contextListTemplate(contexts: contexts)
 
@@ -98,9 +123,9 @@ define [
       assetString = $(this).closest('li').data('context')
 
       # ensures previously picked color clears
-      React.unmountComponentAtNode($('#color_picker_holder')[0]);
+      ReactDOM.unmountComponentAtNode($('#color_picker_holder')[0])
 
-      React.render(ColorPicker({
+      ReactDOM.render(ColorPicker({
         isOpen: true
         positions: positions
         assetString: assetString,
@@ -108,11 +133,11 @@ define [
           forceScreenreaderToReparse($('#application')[0])
         afterUpdateColor: (color) =>
           color = '#' + color
-          $existingStyles = $('#calendar_color_style_overrides');
+          $existingStyles = $('#calendar_color_style_overrides')
           $newStyles = $('<style>')
           $newStyles.text ".group_#{assetString},.group_#{assetString}:hover,.group_#{assetString}:focus{color: #{color}; border-color: #{color}; background-color: #{color};}"
           $existingStyles.append($newStyles)
-      }), $('#color_picker_holder')[0]);
+      }), $('#color_picker_holder')[0])
 
     $skipLink.on 'click', (e) ->
       e.preventDefault()

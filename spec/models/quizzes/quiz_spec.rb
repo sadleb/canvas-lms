@@ -1302,7 +1302,7 @@ describe Quizzes::Quiz do
     before(:once) { @quiz = @course.quizzes.create! title: 'Test Quiz' }
 
     it "returns the regrade for the quiz and quiz version" do
-      course_with_teacher_logged_in(active_all: true, course: @course)
+      course_with_teacher(active_all: true, course: @course)
       question = @quiz.quiz_questions.create(question_data: { question_text: "test 1" })
 
       regrade = Quizzes::QuizRegrade.create!(quiz: @quiz, quiz_version: @quiz.version_number, user: @teacher)
@@ -1311,7 +1311,7 @@ describe Quizzes::Quiz do
     end
 
     it "should not return disabled regrade options" do
-      course_with_teacher_logged_in(active_all: true, course: @course)
+      course_with_teacher(active_all: true, course: @course)
       question = @quiz.quiz_questions.create(question_data: { question_text: "test 1" })
 
       regrade = Quizzes::QuizRegrade.create!(quiz: @quiz, quiz_version: @quiz.version_number, user: @teacher)
@@ -1325,7 +1325,7 @@ describe Quizzes::Quiz do
     before { @quiz = @course.quizzes.create! title: 'Test Quiz' }
 
     it "returns the correct question ids" do
-      course_with_teacher_logged_in(active_all: true, course: @course)
+      course_with_teacher(active_all: true, course: @course)
       q = @quiz.quiz_questions.create!
       regrade = Quizzes::QuizRegrade.create!(quiz: @quiz, quiz_version: @quiz.version_number, user: @teacher)
       rq = regrade.quiz_question_regrades.create! quiz_question_id: q.id, regrade_option: 'current_correct_only'
@@ -1336,7 +1336,7 @@ describe Quizzes::Quiz do
   describe "#regrade_if_published" do
 
     it "queues a job to regrade if there are current question regrades" do
-      course_with_teacher_logged_in(course: @course, active_all: true)
+      course_with_teacher(course: @course, active_all: true)
       quiz = @course.quizzes.create!
       q = quiz.quiz_questions.create!
       regrade = Quizzes::QuizRegrade.create!(quiz: quiz, quiz_version: quiz.version_number, user: @teacher)
@@ -1349,7 +1349,7 @@ describe Quizzes::Quiz do
     end
 
     it "does not queue a job to regrade when no current question regrades" do
-      course_with_teacher_logged_in(course: @course, active_all: true)
+      course_with_teacher(course: @course, active_all: true)
       Quizzes::QuizRegrader::Regrader.expects(:send_later).never
       quiz = @course.quizzes.create!
       quiz.save!
@@ -1358,7 +1358,7 @@ describe Quizzes::Quiz do
 
   describe "#questions_regraded_since" do
     before :once do
-      course_with_teacher_logged_in(active_all: true)
+      course_with_teacher(active_all: true)
       @quiz = @course.quizzes.create!
     end
 
@@ -1713,9 +1713,193 @@ describe Quizzes::Quiz do
     end
 
     it "doesn't let students submit quizzes that are excused" do
-      @quiz.assignment.grade_student(@student, excuse: true)
+      @quiz.assignment.grade_student(@student, excuse: true, grader: @teacher)
       expect(@quiz.grants_right?(@student, :submit)).to eq false
       expect(@quiz.grants_right?(@student, :read)).to eq true
+    end
+  end
+
+  describe "#grants_right?" do
+    before(:once) do
+      quiz_model(course: @course)
+      @admin = account_admin_user()
+      teacher_in_course(:course => @course)
+      @grading_period_group = @course.root_account.grading_period_groups.create!(title: "Example Group")
+      @grading_period_group.enrollment_terms << @course.enrollment_term
+      @course.enrollment_term.save!
+      @quiz.reload
+
+      @grading_period_group.grading_periods.create!({
+        title: "Closed Grading Period",
+        start_date: 5.weeks.ago,
+        end_date: 3.weeks.ago,
+        close_date: 1.week.ago
+      })
+      @grading_period_group.grading_periods.create!({
+        title: "Open Grading Period",
+        start_date: 3.weeks.ago,
+        end_date: 1.week.ago,
+        close_date: 1.week.from_now
+      })
+    end
+
+    context "to delete" do
+      before(:each) do
+        @course.root_account.enable_feature!(:multiple_grading_periods)
+      end
+
+      context "when multiple grading periods is disabled" do
+        it "is true for admins" do
+          @course.root_account.disable_feature!(:multiple_grading_periods)
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is false for teachers" do
+          @course.root_account.disable_feature!(:multiple_grading_periods)
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due in a closed grading period" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 4.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is false for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(false)
+        end
+      end
+
+      context "when the quiz is due in an open grading period" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 2.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due after all grading periods" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 1.day.from_now)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due before all grading periods" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 6.weeks.ago)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz has no due date" do
+        before(:once) do
+          @quiz.update_attributes(due_at: nil)
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is due in a closed grading period for a student" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 2.days.from_now)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.override_due_at(4.weeks.ago)
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is false for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(false)
+        end
+      end
+
+      context "when the quiz is overridden with no due date for a student" do
+        before(:once) do
+          @quiz.update_attributes(due_at: nil)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz has a deleted override in a closed grading period for a student" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 2.days.from_now)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.override_due_at(4.weeks.ago)
+          override.save!
+          override.destroy
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
+
+      context "when the quiz is overridden with no due date and is only visible to overrides" do
+        before(:once) do
+          @quiz.update_attributes(due_at: 4.weeks.ago, only_visible_to_overrides: true)
+          override = @quiz.assignment_overrides.build
+          override.set = @course.default_section
+          override.save!
+        end
+
+        it "is true for admins" do
+          expect(@quiz.reload.grants_right?(@admin, :delete)).to eql(true)
+        end
+
+        it "is true for teachers" do
+          expect(@quiz.reload.grants_right?(@teacher, :delete)).to eql(true)
+        end
+      end
     end
   end
 
@@ -1942,6 +2126,7 @@ describe Quizzes::Quiz do
         it "should grant submit rights" do
           @course.stubs(:grants_right?).with(@student1, nil, :participate_as_student).returns(true)
           @course.stubs(:grants_right?).with(@student1, nil, :manage_assignments).returns(false)
+          @course.stubs(:grants_right?).with(@student1, nil, :read_as_admin).returns(false)
           @course.stubs(:grants_right?).with(@student1, nil, :manage_grades).returns(false)
           expect(@quiz.grants_right?(@student1, :submit)).to eq true
           @course.unstub(:grants_right?)
@@ -1960,6 +2145,7 @@ describe Quizzes::Quiz do
         it 'should not grant submit rights' do
           @course.stubs(:grants_right?).with(@student2, nil, :participate_as_student).returns(true)
           @course.stubs(:grants_right?).with(@student2, nil, :manage_assignments).returns(false)
+          @course.stubs(:grants_right?).with(@student2, nil, :read_as_admin).returns(false)
           @course.stubs(:grants_right?).with(@student2, nil, :manage_grades).returns(false)
           expect(@quiz.grants_right?(@student2, :submit)).to eq false
         end
@@ -2003,6 +2189,56 @@ describe Quizzes::Quiz do
           end
         end
       end
+    end
+  end
+
+  context "due_between_with_overrides" do
+    before :once do
+      @quiz = @course.quizzes.create!(:title => "some quiz", :quiz_type => "survey", :due_at => 1.day.ago)
+
+      override = @quiz.assignment_overrides.build
+      override.due_at = 1.day.from_now
+      override.due_at_overridden = true
+      override.title = 'override'
+      override.save!
+    end
+
+    it 'should return quizzes due between the given dates' do
+      expect(@course.quizzes.due_between_with_overrides(2.days.ago, Time.now)).to include(@quiz)
+    end
+
+    it 'should return quizzes with overrides between the given dates' do
+      expect(@course.quizzes.due_between_with_overrides(Time.now, 2.days.from_now)).to include(@quiz)
+    end
+
+    it "should exclude quizzes that don't meet either criterion" do
+      expect(@course.quizzes.due_between_with_overrides(1.hour.ago, 1.hour.from_now)).not_to include (@quiz)
+    end
+  end
+
+  context "need_submitting_info" do
+    before(:once) do
+      @quiz1 = @course.quizzes.create!
+      @quiz2 = @course.quizzes.create!
+      @quiz3 = @course.quizzes.create!
+      student_in_course :active_all => true
+      sub2 = @quiz2.quiz_submissions.build(:user => @student)
+      sub2.workflow_state = 'preview'
+      sub2.save!
+      sub3 = @quiz3.quiz_submissions.build(:user => @student)
+      sub3.workflow_state = 'complete'
+      sub3.save!
+    end
+
+    it 'includes quizzes without complete submissions' do
+      quizzes = @course.quizzes.need_submitting_info(@student, 10)
+      expect(quizzes).to include @quiz1
+      expect(quizzes).to include @quiz2
+      expect(quizzes).not_to include @quiz3
+    end
+
+    it 'respects limit' do
+      expect(@course.quizzes.need_submitting_info(@student, 1).length).to eql 1
     end
   end
 end

@@ -148,10 +148,13 @@ class AssessmentItemConverter
       if bank =  get_node_att(meta, 'instructureField[name=question_bank]',  'value')
         @question[:question_bank_name] = bank
       end
-      if bank =  get_node_att(meta, 'instructureField[name=question_bank_iden]', 'value')
+      if bank = get_node_att(meta, 'instructureField[name=question_bank_iden]', 'value')
         @question[:question_bank_id] = bank
+        if bb_bank = get_node_att(meta, 'instructureField[name=bb_question_bank_iden]', 'value')
+          @question[:bb_question_bank_id] = bb_bank
+        end
       end
-      if score =  get_node_att(meta, 'instructureField[name=max_score]', 'value')
+      if score = get_node_att(meta, 'instructureField[name=max_score]', 'value')
         @question[:points_possible] = [score.to_f, 0.0].max
       end
       if score = get_node_att(meta, 'instructureField[name=points_possible]', 'value')
@@ -159,6 +162,9 @@ class AssessmentItemConverter
       end
       if ref = get_node_att(meta, 'instructureField[name=assessment_question_identifierref]', 'value')
         @question[:assessment_question_migration_id] = ref
+      end
+      if get_node_att(meta, 'instructureField[name=cc_profile]', 'value') == 'cc.pattern_match.v0p1'
+        @question[:is_cc_pattern_match] = true
       end
       if type =  get_node_att(meta, 'instructureField[name=bb_question_type]', 'value')
         @migration_type = type
@@ -221,7 +227,7 @@ class AssessmentItemConverter
         end
       elsif id =~ /solution/i
         @question[:example_solution] = clear_html(f.text.strip.gsub(/\s+/, " "))
-      elsif id =~ /general_|_all/i
+      elsif (@flavor == Qti::Flavors::D2L && f.text.present?) || id =~ /general_|_all/i
         extract_feedback!(@question, :neutral_comments, f)
       elsif id =~ /feedback_(\d*)_fb/i
         if answer = @question[:answers].find{|a|a[:migration_id]== "RESPONSE_#{$1}"}

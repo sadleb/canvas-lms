@@ -31,17 +31,30 @@ class CanvadocSessionsController < ApplicationController
 
     if attachment.canvadocable?
       opts = {
-        preferred_renders: []
+        preferred_plugins: [Canvadocs::RENDER_BOX, Canvadocs::RENDER_CROCODOC]
       }
       if @domain_root_account.settings[:canvadocs_prefer_office_online]
-        opts[:preferred_renders].unshift Canvadocs::RENDER_O365
+        opts[:preferred_plugins].unshift Canvadocs::RENDER_O365
       end
+
+      # We can't set the pdfjs preference here during upload because with
+      # only an attachment object we lack the requisite context
       attachment.submit_to_canvadocs(1, opts) unless attachment.canvadoc_available?
-      url = attachment.canvadoc.session_url(user: @current_user)
+
+      if pdfjs_feature_flag_enabled?(attachment.try(:canvadoc))
+        # Office 365 should take priority over pdfjs
+        index = opts[:preferred_plugins].first == Canvadocs::RENDER_O365 ? 1 : 0
+        opts[:preferred_plugins].insert(index, Canvadocs::RENDER_PDFJS)
+      end
+      url = attachment.canvadoc.session_url(opts.merge(user: @current_user))
 
       # For the purposes of reporting student viewership, we only
       # care if the original attachment owner is looking
-      attachment.touch(:viewed_at) if attachment.context == @current_user
+      # Depending on how the attachment came to exist that might be
+      # either the context of the attachment or the attachments' user
+      if (attachment.context == @current_user) || (attachment.user == @current_user)
+        attachment.touch(:viewed_at)
+      end
 
       redirect_to url
     else
@@ -53,5 +66,14 @@ class CanvadocSessionsController < ApplicationController
   rescue Timeout::Error
     render :text => "Service is currently unavailable. Try again later.",
            :status => :service_unavailable
+  end
+
+  private
+
+  def pdfjs_feature_flag_enabled?(canvadoc)
+    course = Course.find(canvadoc.preferred_plugin_course_id)
+    return course.feature_enabled?(:new_annotations)
+  rescue NoMethodError, ActiveRecord::RecordNotFound => e
+    false
   end
 end

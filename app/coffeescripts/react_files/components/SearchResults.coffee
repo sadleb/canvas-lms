@@ -3,12 +3,11 @@ define [
   'i18n!react_files'
   'react',
   'compiled/collections/FilesCollection'
-  'compiled/react/shared/utils/withReactElement'
   '../modules/customPropTypes'
   '../utils/updateAPIQuerySortParams'
   '../utils/getAllPages'
   '../utils/locationOrigin'
-], (_, I18n, React, FilesCollection, withReactElement, customPropTypes, updateAPIQuerySortParams, getAllPages) ->
+], (_, I18n, React, FilesCollection, customPropTypes, updateAPIQuerySortParams, getAllPages) ->
 
   SearchResults =
     displayName: 'SearchResults'
@@ -34,12 +33,21 @@ define [
         responseText =
           errors: [{message}]
 
-      @setState errors: if _.isArray(responseText.errors)
-                          responseText.errors
-                        else if responseText.errors?.base?
-                          [{message: "#{responseText.errors.base}, #{responseText.status}"}]
-                        else
-                          [{message}]
+      errors = if _.isArray(responseText.errors)
+                 @translateErrors(responseText.errors)
+               else if responseText.errors?.base?
+                 [{message: "#{responseText.errors.base}, #{responseText.status}"}]
+               else
+                 [{message}]
+      @setState errors: errors
+      $.screenReaderFlashMessageExclusive (_.map errors, (error) -> error.message).join ' '
+
+    translateErrors: (errors) ->
+      _.map errors, (error) ->
+        if error.message is "3 or more characters is required"
+          { message: I18n.t('Please enter a search term with three or more characters') }
+        else
+          error
 
     updateResults: (props) ->
       oldUrl = @state.collection.url

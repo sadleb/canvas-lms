@@ -993,6 +993,31 @@ describe Conversation do
       conversation.add_message(u2, 'ohai yourself', :root_account_id => 2)
       expect(conversation.root_account_ids).to eql [1, 2]
     end
+
+    it "includes the context's root account when initiating" do
+      new_course = course
+      conversation = Conversation.initiate([], false, context_type: 'Course', context_id: new_course.id)
+      expect(conversation.root_account_ids).to eql [new_course.root_account_id]
+    end
+
+    context "sharding" do
+      specs_require_sharding
+
+      it "should use global ids" do
+        @shard1.activate do
+          @account = account_model
+          new_course = course(:account => @account)
+          u1 = user
+          u2 = user
+          conversation = Conversation.initiate([u1, u2], false, context_type: 'Course', context_id: new_course.id)
+          expect(conversation.root_account_ids).to eql [@account.global_id]
+
+          conversation.add_message(u1, 'ohai')
+          admin = account_admin_user(:account => @account, :active_all => true)
+          expect(u1.conversations.for_masquerading_user(admin).first).to be_present
+        end
+      end
+    end
   end
 
   def merge_and_check(sender, source, target, source_user, target_user)

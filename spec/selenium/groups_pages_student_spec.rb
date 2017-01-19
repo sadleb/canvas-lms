@@ -23,11 +23,18 @@ describe "groups" do
   setup_group_page_urls
 
   context "as a student" do
-    before do
-      course_with_student_logged_in(active_all: true)
+    before :once do
+      @student = User.create!(name: "Student 1")
+      @teacher = User.create!(name: "Teacher 1")
+      course_with_student({user: @student, :active_course => true, :active_enrollment => true})
+      @course.enroll_teacher(@teacher).accept!
       group_test_setup(4,1,1)
       # adds all students to the group
-      add_users_to_group(@students + [@user],@testgroup.first)
+      add_users_to_group(@students + [@student],@testgroup.first)
+    end
+
+    before :each do
+      user_session(@student)
     end
 
     #-------------------------------------------------------------------------------------------------------------------
@@ -38,6 +45,16 @@ describe "groups" do
         get url
         expect(f('.recent-activity-header')).to be_displayed
         verify_no_course_user_access(url)
+      end
+
+      it "hides groups for inaccessible courses in groups list", priority: "2", test_id: 927757 do
+        term = EnrollmentTerm.find(@course.enrollment_term_id)
+        term.end_at = Time.zone.now-2.days
+        term.save!
+        @course.restrict_student_past_view = true
+        @course.save
+        get '/groups'
+        expect(f('#content')).not_to contain_css('.previous_groups')
       end
     end
 
@@ -112,6 +129,17 @@ describe "groups" do
         # Checks that all students and teachers created in setup are listed on page
         expect(ff('.student_roster .user_name').size).to eq 5
         expect(ff('.teacher_roster .user_name').size).to eq 1
+      end
+
+      it "shows only active members in groups to students", priority: "2", test_id: 840142 do
+        get people_page
+        student_enrollment = StudentEnrollment.last
+        student = User.find(student_enrollment.user_id)
+        expect(f('.student_roster')).to contain_css("a[href*='#{student.id}']")
+        student_enrollment.workflow_state = "inactive"
+        student_enrollment.save!
+        refresh_page
+        expect(f('.student_roster')).not_to contain_css("a[href*='#{student.id}']")
       end
 
       it "should allow access to people page only within the scope of a group", priority: "1", test_id: 319906 do
@@ -233,7 +261,7 @@ describe "groups" do
       it "should allow group members to add a new folder", priority: "1", test_id: 273625 do
         get files_page
         add_folder
-        expect(ff('.media-body').first.text).to eq 'new folder'
+        expect(ff('.ef-name-col__text').first.text).to eq 'new folder'
       end
 
       it "should allow group members to delete a folder", priority: "1", test_id: 273631 do
@@ -272,26 +300,16 @@ describe "groups" do
         move_file_to_folder('example.pdf','destination_folder')
       end
 
-      it "should allow group members to publish and unpublish a file", priority: "1", test_id: 273628 do
+      it "should hide the publish cloud" do
         add_test_files
         get files_page
-        set_item_permissions(:unpublish,:toolbar_menu)
-        expect(f('.btn-link.published-status.unpublished')).to be_displayed
-        set_item_permissions(:publish,:toolbar_menu)
-        expect(f('.btn-link.published-status.published')).to be_displayed
-      end
-
-      it "should allow group members to restrict access to a file", priority: "1", test_id: 304672 do
-        add_test_files
-        get files_page
-        set_item_permissions(:restricted_access, :available_with_link, :cloud_icon)
-        expect(f('.btn-link.published-status.hiddenState')).to be_displayed
+        expect(f('#content')).to_not contain_css('.btn-link.published-status')
       end
     end
 
     #-------------------------------------------------------------------------------------------------------------------
     describe "conferences page" do
-      before(:once) do
+      before :once do
         PluginSetting.create!(name: "wimba", settings: {"domain" => "wimba.instructure.com"})
       end
 
@@ -305,7 +323,7 @@ describe "groups" do
     end
     #-------------------------------------------------------------------------------------------------------------------
     describe "collaborations page" do
-      before(:each) do
+      before :each do
         setup_google_drive
         unless PluginSetting.where(name: 'google_drive').exists?
           PluginSetting.create!(name: 'google_drive', settings: {})

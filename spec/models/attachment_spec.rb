@@ -298,22 +298,13 @@ describe Attachment do
     end
 
     context "uploading and db transactions" do
-      self.use_transactional_fixtures = false
-
-      before do
+      before :once do
         attachment_model(:context => Account.default.groups.create!, :filename => 'test.mp4', :content_type => 'video')
-      end
-
-      after do
-        truncate_table(Attachment)
-        truncate_table(Folder)
-        truncate_table(Group)
-        truncate_table(Delayed::Job)
       end
 
       it "should delay upload until the #save transaction is committed" do
         @attachment.uploaded_data = default_uploaded_data
-        Attachment.connection.expects(:after_transaction_commit).once
+        Attachment.connection.expects(:after_transaction_commit).twice
         @attachment.expects(:touch_context_if_appropriate).never
         @attachment.expects(:ensure_media_object).never
         @attachment.save
@@ -322,7 +313,7 @@ describe Attachment do
       it "should upload immediately when in a non-joinable transaction" do
         Attachment.connection.transaction(:joinable => false) do
           @attachment.uploaded_data = default_uploaded_data
-          Attachment.connection.expects(:after_transaction_commit).never
+          Attachment.connection.expects(:after_transaction_commit).once
           @attachment.expects(:touch_context_if_appropriate)
           @attachment.expects(:ensure_media_object)
           @attachment.save
@@ -783,6 +774,51 @@ describe Attachment do
       @a1.update_attribute(:replacement_attachment_id, nil)
       expect(@course.attachments.find(@a1.id)).to eql @a
     end
+
+    it "preserves hidden state" do
+      @a1.update_attribute(:file_state, 'hidden')
+      @a.update_attribute(:display_name, 'a1')
+      @a.handle_duplicates(:overwrite)
+      expect(@a.reload.file_state).to eq 'hidden'
+    end
+
+    it "preserves unpublished state" do
+      @a1.update_attribute(:locked, true)
+      @a.update_attribute(:display_name, 'a1')
+      @a.handle_duplicates(:overwrite)
+      expect(@a.reload.locked).to eq true
+    end
+
+    it "preserves lock dates" do
+      @a1.unlock_at = Date.new(2016, 1, 1)
+      @a1.lock_at = Date.new(2016, 4, 1)
+      @a1.save!
+      @a.update_attribute(:display_name, 'a1')
+      @a.handle_duplicates(:overwrite)
+      expect(@a.reload.unlock_at).to eq @a1.reload.unlock_at
+      expect(@a.lock_at).to eq @a1.lock_at
+    end
+
+    it "preserves usage rights" do
+      usage_rights = @course.usage_rights.create! use_justification: 'creative_commons', legal_copyright: '(C) 2014 XYZ Corp', license: 'cc_by_nd'
+      @a1.usage_rights = usage_rights
+      @a1.save!
+      @a.update_attribute(:display_name, 'a1')
+      @a.handle_duplicates(:overwrite)
+      expect(@a.reload.usage_rights).to eq usage_rights
+    end
+
+    it "forces rename semantics in submissions folders" do
+      user_model
+      a1 = attachment_model context: @user, folder: @user.submissions_folder, filename: 'a1.txt'
+      a2 = attachment_model context: @user, folder: @user.submissions_folder, filename: 'a2.txt'
+      a2.display_name = 'a1.txt'
+      deleted = a2.handle_duplicates(:overwrite)
+      expect(deleted).to be_empty
+      a2.reload
+      expect(a2.display_name).not_to eq 'a1.txt'
+      expect(a2.display_name).not_to eq 'a2.txt'
+    end
   end
 
   describe "make_unique_filename" do
@@ -802,6 +838,15 @@ describe Attachment do
   context "download/inline urls" do
     before :once do
       course_model
+    end
+
+    it 'should allow custom ttl for download_url' do
+      attachment = attachment_with_context(@course, :display_name => 'foo')
+      attachment.expects(:authenticated_s3_url).at_least(0) # allow other calls due to, e.g., save
+      attachment.expects(:authenticated_s3_url).with(has_entry(:expires => 86400))
+      attachment.download_url
+      attachment.expects(:authenticated_s3_url).with(has_entry(:expires => 172800))
+      attachment.download_url(2.days.to_i)
     end
 
     it "should include response-content-disposition" do
@@ -949,7 +994,7 @@ describe Attachment do
     end
   end
 
-  context "#change_namespace" do
+  context "#change_namespace and #make_childless" do
     before :once do
       @old_account = account_model
       @new_account = account_model
@@ -989,6 +1034,17 @@ describe Attachment do
       @root.change_namespace(@new_account.file_namespace)
       expect(@root.namespace).to eq @new_account.file_namespace
       expect(@child.reload.namespace).to eq @root.namespace
+    end
+
+    it 'should allow making a root_attachment childess' do
+      @child.update_attribute(:filename, 'invalid')
+      @root.s3object.stubs(:exists?).returns(true)
+      @child.stubs(:s3object).returns(@old_object)
+      @child.s3object.stubs(:exists?).returns(true)
+      @root.make_childless(@child)
+      expect(@root.reload.children).to eq []
+      expect(@child.reload.root_attachment_id).to eq nil
+      expect(@child.read_attribute(:filename)).to eq @root.filename
     end
   end
 
@@ -1302,6 +1358,13 @@ describe Attachment do
       expect(quota[:quota_used]).to eq 0
     end
 
+    it "should not count attachments in group submissions folders toward the quota" do
+      group_model
+      attachment_model(:context => @group, :uploaded_data => stub_png_data, :filename => 'whatever.png', :folder => @group.submissions_folder)
+      @attachment.update_attribute(:size, 1.megabyte)
+      quota = Attachment.get_quota(@group)
+      expect(quota[:quota_used]).to eq 0
+    end
   end
 
   context "#open" do

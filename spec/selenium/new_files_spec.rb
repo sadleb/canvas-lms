@@ -19,7 +19,7 @@ describe "better_file_browsing" do
     end
     it "should load correct column values on uploaded file", priority: "1", test_id: 133129 do
       time_current = @course.attachments.first.updated_at.strftime("%l:%M%P").strip
-      expect(ff('.media-body')[0].text).to eq 'example.pdf'
+      expect(ff('.ef-name-col__text')[0].text).to eq 'example.pdf'
       expect(ff('.ef-date-created-col')[1].text).to eq time_current
       expect(ff('.ef-date-modified-col')[1].text).to eq time_current
       expect(ff('.ef-size-col')[1].text).to eq '194 KB'
@@ -136,13 +136,9 @@ describe "better_file_browsing" do
     end
 
     it "should search for a file", priority: "2", test_id: 220355 do
-      edit_name_from_cog_icon("b_file1.txt")
-      wait_for_ajaximations
-      f("input[type='search']").send_keys "b_fi"
-      driver.action.send_keys(:return).perform
-      # Unable to find matching line from backtrace error is encountered if refresh_page is not used
-      refresh_page
-      expect(all_files_folders.count).to eq 2
+      expect(all_files_folders).to have_size 3
+      f("input[type='search']").send_keys "b_fi", :return
+      expect(all_files_folders).to have_size 1
     end
   end
 
@@ -164,10 +160,10 @@ describe "better_file_browsing" do
       add_folder("destination_folder")
       move(file_name, 0, :cog_icon)
       wait_for_ajaximations
-      expect(f("#flash_message_holder").text).to eq "#{file_name} moved to destination_folder\nClose"
+      expect(f("#flash_message_holder").text).to eq "#{file_name} moved to destination_folder"
       wait_for_ajaximations
-      expect(ff('.media-body')[0].text).not_to eq file_name
-      ff('.media-body')[2].click
+      expect(ff('.ef-name-col__text')[0].text).not_to eq file_name
+      ff('.ef-name-col__text')[2].click
       wait_for_ajaximations
       expect(fln(file_name)).to be_displayed
     end
@@ -176,10 +172,10 @@ describe "better_file_browsing" do
       add_folder("destination_folder")
       move(file_name, 0, :toolbar_menu)
       wait_for_ajaximations
-      expect(f("#flash_message_holder").text).to eq "#{file_name} moved to destination_folder\nClose"
+      expect(f("#flash_message_holder").text).to eq "#{file_name} moved to destination_folder"
       wait_for_ajaximations
-      expect(ff('.media-body')[0].text).not_to eq file_name
-      ff('.media-body')[2].click
+      expect(ff('.ef-name-col__text')[0].text).not_to eq file_name
+      ff('.ef-name-col__text')[2].click
       wait_for_ajaximations
       expect(fln(file_name)).to be_displayed
     end
@@ -188,10 +184,10 @@ describe "better_file_browsing" do
       add_folder("destination_folder")
       move_multiple_using_toolbar(files)
       wait_for_ajaximations
-      expect(f("#flash_message_holder").text).to eq "#{files.count} items moved to destination_folder\nClose"
+      expect(f("#flash_message_holder").text).to eq "#{files.count} items moved to destination_folder"
       wait_for_ajaximations
-      expect(ff('.media-body')[0].text).not_to eq files[0]
-      ff('.media-body')[0].click
+      expect(ff('.ef-name-col__text')[0].text).not_to eq files[0]
+      ff('.ef-name-col__text')[0].click
       wait_for_ajaximations
       files.each do |file|
         expect(fln(file)).to be_displayed
@@ -208,7 +204,7 @@ describe "better_file_browsing" do
         move(file_name, 0, :cog_icon, destination)
         wait_for_ajaximations
         final_destination = destination.split('/').pop
-        expect(f("#flash_message_holder").text).to eq "#{file_name} moved to #{final_destination}\nClose"
+        expect(f("#flash_message_holder").text).to eq "#{file_name} moved to #{final_destination}"
         wait_for_ajaximations
         fj("a.treeLabel span:contains('#{final_destination}')").click
         wait_for_ajaximations
@@ -352,7 +348,7 @@ describe "better_file_browsing" do
         react_modal_hidden
         # a11y: focus should go back to the element that was clicked.
         check_element_has_focus(f('.Toolbar__ManageUsageRights'))
-        ff('.media-body')[0].click
+        ff('.ef-name-col__text')[0].click
         wait_for_ajaximations
         verify_usage_rights_ui_updates
       end
@@ -399,9 +395,9 @@ describe "better_file_browsing" do
         file_name = "amazing_file.txt"
         move(file_name, 1, :cog_icon)
         wait_for_ajaximations
-        expect(f("#flash_message_holder").text).to eq "#{file_name} moved to course files\nClose"
+        expect(f("#flash_message_holder").text).to eq "#{file_name} moved to course files"
         wait_for_ajaximations
-        expect(ff('.media-body')[1].text).to eq file_name
+        expect(ff('.ef-name-col__text')[1].text).to eq file_name
       end
 
       it "should show modal on how to handle duplicates when copying files", priority: "1", test_id: 194250 do
@@ -412,11 +408,43 @@ describe "better_file_browsing" do
         expect(f("#renameFileMessage").text).to eq "An item named \"#{file_name}\" already exists in this location. Do you want to replace the existing file?"
         ff(".btn-primary")[2].click
         wait_for_ajaximations
-        expect(f("#flash_message_holder").text).to eq "#{file_name} moved to course files\nClose"
+        expect(f("#flash_message_holder").text).to eq "#{file_name} moved to course files"
         wait_for_ajaximations
-        expect(ff('.media-body')[0].text).to eq file_name
+        expect(ff('.ef-name-col__text')[0].text).to eq file_name
       end
     end
   end
 
+  context "When Require Usage Rights is turned-off" do
+    it "sets files to published by default", priority: "1", test_id: 133136 do
+      course_with_teacher_logged_in
+      Account.default.disable_feature!(:usage_rights_required)
+      add_file(fixture_file_upload("files/b_file.txt", 'text/plain'), @course, 'b_file.txt')
+
+      get "/courses/#{@course.id}/files"
+      expect(f('.btn-link.published-status.published')).to be_displayed
+    end
+  end
+
+  context "Directory Header" do
+    it "should sort the files properly", priority: 2, test_id: 1664875 do
+      # this test performs 2 sample sort combinations
+      course_with_teacher_logged_in
+
+      add_file(fixture_file_upload('files/example.pdf', 'application/pdf'), @course, "a_example.pdf")
+      add_file(fixture_file_upload("files/b_file.txt", 'text/plain'), @course, 'b_file.txt')
+
+      get "/courses/#{@course.id}/files"
+
+      # click name once to make it sort descending
+      fj('.ef-plain-link span:contains("Name")').click
+      expect(ff('.ef-name-col__text')[0].text).to eq 'example.pdf'
+      expect(ff('.ef-name-col__text')[1].text).to eq 'b_file.txt'
+
+      # click size twice to make it sort ascending
+      2.times { fj('.ef-plain-link span:contains("Size")').click }
+      expect(ff('.ef-name-col__text')[0].text).to eq 'b_file.txt'
+      expect(ff('.ef-name-col__text')[1].text).to eq 'example.pdf'
+    end
+  end
 end

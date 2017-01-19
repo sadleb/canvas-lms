@@ -9,10 +9,6 @@ a#accessibility_warning {
   display: none;
 }
 
-#main {
-  margin-bottom: 0;
-}
-
 $cell_height: 33px;
 
 // ******* overrides of the default slick.grid.css styles ********
@@ -42,10 +38,9 @@ $cell_height: 33px;
 
 // ******* END overrides of the default slick.grid.css styles ********
 
-.gradebook2 #content {
+.gradebook2 .ic-Layout-contentMain {
   position: relative;
-  @if $use_new_styles { padding: 0 $ic-sp*2; }
-  @else { padding: 0; }
+  padding: 0 $ic-sp*2;
 }
 
 #gradebook-grid-wrapper {
@@ -368,9 +363,11 @@ $cell_height: 33px;
   }
 }
 
+$gradebook_cell_padding_top: 8px;
+
 .gradebook-cell {
-  padding-top: 8px;
-  height: $cell_height - 8px;
+  padding-top: $gradebook_cell_padding_top;
+  height: $cell_height - $gradebook_cell_padding_top;
   position: relative;
   text-align: center;
   background-repeat: repeat;
@@ -568,22 +565,15 @@ $cell_height: 33px;
   }
 }
 
-$gradebook_checkbox_width: 16px;
+$gradebook_checkbox_size: 16px;
 
 .gradebook-checkbox {
-  @include hide-text;
   display: block;
   position: absolute;
   left: 50%;
   top: 50%;
-  width: $gradebook_checkbox_width;
-  height: $gradebook_checkbox_width;
-  margin-top: -$gradebook_checkbox_width / 2;
-  margin-left: -$gradebook_checkbox_width / 2;
-  & i {
-    text-indent: 0;
-    color: inherit;
-  }
+  margin-top: -($gradebook_checkbox_size / 2) - ( $gradebook_cell_padding_top / 2 );
+  margin-left: -$gradebook_checkbox_size / 2;
 }
 
 #hide_warning {
@@ -607,19 +597,11 @@ $gradebook_checkbox_width: 16px;
 // STUFF FOR HEADER
 #gradebook-toolbar {
   position: relative;
-  @if $use_new_styles {
-    padding: $ic-sp;
-    border-top: none;
-    @include breakpoint(desktop) {
-      display: flex;
-      align-items: center;
-    }
-  }
-  @else {
-    height: 38px;
-    padding: 6px 10px;
-    border-left: none;
-    border-right: none;
+  padding: $ic-sp;
+  border-top: none;
+  @include breakpoint(desktop) {
+    display: flex;
+    align-items: center;
   }
 }
 
@@ -632,27 +614,18 @@ $gradebook_checkbox_width: 16px;
   input {
     width: 248px;
   }
-  @if $use_new_styles {
-    @include breakpoint(desktop) {
-      margin-left: $ic-sp/3;
-    }
+  @include breakpoint(desktop) {
+    margin-left: $ic-sp/3;
   }
 }
 
 .gradebook_menu {
-  @if $use_new_styles {
-    margin-top: $ic-sp/3;
-    @include breakpoint(desktop) {
-      white-space: nowrap;
-      margin-top: 0;
-      flex: 1;
-      text-align: right;
-    }
-  }
-  @else {
-    position: absolute;
-    right: 10px;
-    top: 6px;
+  margin-top: $ic-sp/3;
+  @include breakpoint(desktop) {
+    white-space: nowrap;
+    margin-top: 0;
+    flex: 1;
+    text-align: right;
   }
 }
 
@@ -732,6 +705,17 @@ $gradebook_checkbox_width: 16px;
   }
 }
 
+.ui-menu .ui-menu-item.ui-state-disabled {
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+}
+
+.ui-menu-item.ui-state-disabled label {
+  margin-bottom: 0;
+  vertical-align: 0;
+}
+
 .post-grades-menu {
   li.external-tools-dialog,
   li.post-grades-placeholder {
@@ -770,4 +754,3 @@ $gradebook_checkbox_width: 16px;
     opacity: 0.8;
   }
 }
-

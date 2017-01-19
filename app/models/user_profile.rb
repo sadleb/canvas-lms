@@ -38,22 +38,15 @@ class UserProfile < ActiveRecord::Base
         { :id => TAB_PROFILE_SETTINGS, :label => I18n.t('#user_profile.tabs.settings', 'Settings'), :css_class => 'profile_settings', :href => :settings_profile_path, :no_args => true },
       ]
       if user && opts[:root_account] && opts[:root_account].enable_profiles?
-        @tabs.insert 1, {:id => TAB_PROFILE, :label => I18n.t('#user_profile.tabs.profile', "Profile"), :css_class => 'profile', :href => :user_profile_path, :args => [user.id]}
+        @tabs.insert 1, {:id => TAB_PROFILE, :label => I18n.t('#user_profile.tabs.profile', "Profile"), :css_class => 'profile', :href => :profile_path}
       end
 
       @tabs << { :id => TAB_EPORTFOLIOS, :label => I18n.t('#tabs.eportfolios', "ePortfolios"), :css_class => 'eportfolios', :href => :dashboard_eportfolios_path, :no_args => true } if user.eportfolios_enabled?
 
 
       if user && opts[:root_account]
-        opts[:root_account].context_external_tools.active.having_setting('user_navigation').each do |tool|
-          @tabs << {
-            :id => tool.asset_string,
-            :label => tool.label_for(:user_navigation, opts[:language] || I18n.locale),
-            :css_class => tool.asset_string,
-            :href => :user_external_tool_path,
-            :args => [user.id, tool.id]
-          }
-        end
+        tools = opts[:root_account].context_external_tools.active.having_setting('user_navigation')
+        @tabs += Lti::ExternalToolTab.new(user, :user_navigation, tools, opts[:language]).tabs
       end
       if user && user.fake_student?
         @tabs = @tabs.slice(0,2)

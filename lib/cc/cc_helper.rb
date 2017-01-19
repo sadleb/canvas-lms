@@ -94,10 +94,7 @@ module CCHelper
   CANVAS_EXPORT_FLAG = 'canvas_export.txt'
   MEDIA_TRACKS = 'media_tracks.xml'
   ASSIGNMENT_XML = 'assignment.xml'
-
-  def create_key(object, prepend="")
-    CCHelper.create_key(object, prepend)
-  end
+  EXTERNAL_CONTENT_FOLDER = 'external_content'
 
   def ims_date(date=nil)
     CCHelper.ims_date(date)
@@ -162,6 +159,7 @@ module CCHelper
       @track_referenced_files = opts[:track_referenced_files]
       @for_course_copy = opts[:for_course_copy]
       @for_epub_export = opts[:for_epub_export]
+      @key_generator = opts[:key_generator] || CC::CCHelper
       @referenced_files = {}
 
       @rewriter.set_handler('file_contents') do |match|
@@ -173,11 +171,16 @@ module CCHelper
         end
       end
       @rewriter.set_handler('files') do |match|
-        # If match.obj_id is nil, it's because we're actually linking to a page
-        # (the /courses/:id/files page) and not to a specific file. In this case,
-        # just pass it straight through.
         if match.obj_id.nil?
-          "#{COURSE_TOKEN}/files"
+          if match_data = match.url.match(%r{/files/folder/(.*)})
+            # this might not be the best idea but let's keep going and see what happens
+            "#{COURSE_TOKEN}/files/folder/#{match_data[1]}"
+          else
+            # If match.obj_id is nil, it's because we're actually linking to a page
+            # (the /courses/:id/files page) and not to a specific file. In this case,
+            # just pass it straight through.
+            "#{COURSE_TOKEN}/files"
+          end
         else
           if @course && match.obj_class == Attachment
             obj = @course.attachments.find_by_id(match.obj_id)
@@ -188,7 +191,7 @@ module CCHelper
           folder = obj.folder.full_name.sub(/course( |%20)files/, WEB_CONTENT_TOKEN)
           folder = folder.split("/").map{|part| URI.escape(part)}.join("/")
 
-          @referenced_files[obj.id] = CCHelper.create_key(obj) if @track_referenced_files && !@referenced_files[obj.id]
+          @referenced_files[obj.id] = @key_generator.create_key(obj) if @track_referenced_files && !@referenced_files[obj.id]
           # for files, turn it into a relative link by path, rather than by file id
           # we retain the file query string parameters
           path = "#{folder}/#{URI.escape(obj.display_name)}"

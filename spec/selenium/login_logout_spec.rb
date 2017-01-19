@@ -5,8 +5,7 @@ describe "login logout test" do
 
   def should_show_message(message_text, selector)
     expect(fj(selector)).to include_text(message_text)
-    # the text isn't visible on the page so the webdriver .text method doesn't return it
-    expect(driver.execute_script("return $('#flash_screenreader_holder').text()")).to eq message_text
+    expect(f('#flash_screenreader_holder')).to have_attribute("textContent", message_text)
   end
 
   def go_to_forgot_password
@@ -21,7 +20,7 @@ describe "login logout test" do
   it "should login successfully with correct username and password", priority: "2" do
     user_with_pseudonym({:active_user => true})
     login_as
-    expect(f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#global_nav_profile_display_name' : '.user_name').text).to eq @user.primary_pseudonym.unique_id
+    expect(f('#global_nav_profile_display_name').text).to eq @user.primary_pseudonym.unique_id
   end
 
   it "should show error message if wrong credentials are used", priority: "2" do
@@ -52,7 +51,7 @@ describe "login logout test" do
   end
 
   it "should prompt must be logged in message when accessing permission based pages while not logged in", priority: "2" do
-    expected_url = app_host + "/login/canvas"
+    expected_url = app_url + "/login/canvas"
     get "/grades"
     assert_flash_warning_message /You must be logged in to access this page/
     expect(driver.current_url).to eq expected_url

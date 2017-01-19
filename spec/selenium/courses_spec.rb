@@ -280,16 +280,14 @@ describe "courses" do
       expect(options.length).to eq 2
       wait_for_ajaximations
       expect_new_page_load{ click_option('#course_url', course2.name) }
-      expect(f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#breadcrumbs .home + li a' : '#section-tabs-header')).to include_text(course2.name)
+      expect(f('#breadcrumbs .home + li a')).to include_text(course2.name)
     end
 
     it "should load the users page using ajax" do
       course_with_teacher_logged_in
 
-      # Setup the course with > 50 users (to test scrolling)
-      60.times do |n|
-        @course.enroll_student(user)
-      end
+      # Set up the course with > 50 users (to test scrolling)
+      create_users_in_course @course, 60
 
       @course.enroll_user(user, 'TaEnrollment')
 
@@ -352,15 +350,7 @@ describe "courses" do
         @course.context_external_tools.create!(defaults.merge(options))
       end
 
-      it "should display course_home_sub_navigation lti apps (draft state off)" do
-        course_with_teacher_logged_in(active_all: true)
-        num_tools = 3
-        num_tools.times { |index| create_course_home_sub_navigation_tool(name: "external tool #{index}") }
-        get "/courses/#{@course.id}"
-        expect(ff(".course-home-sub-navigation-lti").size).to eq num_tools
-      end
-
-      it "should display course_home_sub_navigation lti apps (draft state on)" do
+      it "should display course_home_sub_navigation lti apps", priority: "1", test_id: 2624910 do
         course_with_teacher_logged_in(active_all: true)
         num_tools = 2
         num_tools.times { |index| create_course_home_sub_navigation_tool(name: "external tool #{index}") }
@@ -368,21 +358,14 @@ describe "courses" do
         expect(ff(".course-home-sub-navigation-lti").size).to eq num_tools
       end
 
-      it "should include launch type parameter (draft state off)" do
+      it "should include launch type parameter", priority: "1", test_id: 2624911 do
         course_with_teacher_logged_in(active_all: true)
         create_course_home_sub_navigation_tool
         get "/courses/#{@course.id}"
         expect(f('.course-home-sub-navigation-lti')).to have_attribute("href", /launch_type=course_home_sub_navigation/)
       end
 
-      it "should include launch type parameter (draft state on)" do
-        course_with_teacher_logged_in(active_all: true)
-        create_course_home_sub_navigation_tool
-        get "/courses/#{@course.id}"
-        expect(f('.course-home-sub-navigation-lti')).to have_attribute("href", /launch_type=course_home_sub_navigation/)
-      end
-
-      it "should only display active tools" do
+      it "should only display active tools", priority: "1", test_id: 2624912 do
         course_with_teacher_logged_in(active_all: true)
         tool = create_course_home_sub_navigation_tool
         tool.workflow_state = 'deleted'
@@ -391,7 +374,7 @@ describe "courses" do
         expect(f("#content")).not_to contain_css(".course-home-sub-navigation-lti")
       end
 
-      it "should not display admin tools to students" do
+      it "should not display admin tools to students", priority: "1", test_id: 2624913 do
         course_with_teacher_logged_in(active_all: true)
         tool = create_course_home_sub_navigation_tool
         tool.course_home_sub_navigation['visibility'] = 'admins'
@@ -465,5 +448,68 @@ describe "courses" do
       expect(content).to include_text('My Groups')
       expect(content).to include_text('group1')
     end
+
+    it "should reset cached permissions when enrollment is activated by date" do
+      enable_cache do
+        enroll_student(@student, true)
+
+        @course.start_at = 1.day.from_now
+        @course.restrict_enrollments_to_course_dates = true
+        @course.restrict_student_future_view = true
+        @course.save!
+
+        user_session(@student)
+
+        User.where(:id => @student).update_all(:updated_at => 5.minutes.ago) # make sure that touching the user resets the cache
+
+        get "/courses/#{@course.id}"
+
+        # cache unauthorized permission
+        expect(f('#unauthorized_message')).to be_displayed
+
+        # manually trigger a stale enrollment - should recalculate on visit if it didn't already in the background
+        Course.where(:id => @course).update_all(:start_at => 1.day.ago)
+        Enrollment.where(:id => @student.student_enrollments).update_all(:updated_at => 1.second.from_now) # because of enrollment date caching
+        EnrollmentState.where(:enrollment_id => @student.student_enrollments).update_all(:state_is_current => false)
+
+        refresh_page
+        expect(f('#course_home_content')).to be_displayed
+      end
+    end
+  end
+
+  it "shouldn't cache unauth permissions for semi-public courses from sessionless permission checks" do
+    course(:active_all => true)
+    @course.update_attribute(:is_public_to_auth_users, true)
+
+    user(:active_all => true)
+    user_session(@user)
+
+    enable_cache do
+      # previously was cached by visiting "/courses/#{@course.id}/assignments/syllabus"
+      expect(@course.grants_right?(@user, :read)).to be_falsey # requires session[:user_id] - caches a false value
+
+      get "/courses/#{@course.id}"
+
+      expect(f('#course_home_content')).to be_displayed
+    end
+  end
+
+  it "should display announcements on course home page if enabled and is wiki" do
+    course_with_teacher_logged_in :active_all => true
+
+    get "/courses/#{@course.id}"
+
+    expect(element_exists?('#announcements_on_home_page')).to be_falsey
+
+    @course.default_view = "wiki"
+    @course.show_announcements_on_home_page = true
+    @course.home_page_announcement_limit = 5
+    @course.save!
+    @course.wiki.wiki_pages.create!(:title => 'blah').set_as_front_page!
+
+    get "/courses/#{@course.id}"
+
+    expect(f('#announcements_on_home_page')).to be_displayed
   end
 end

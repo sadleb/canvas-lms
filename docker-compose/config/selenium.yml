@@ -1,4 +1,5 @@
 test:
   host: canvasselenium
-  remote_url: http://selenium.docker/wd/hub
+  remote_url_firefox: http://seleniumff.docker/wd/hub
+  remote_url_chrome: http://seleniumch.docker/wd/hub
   browser: firefox

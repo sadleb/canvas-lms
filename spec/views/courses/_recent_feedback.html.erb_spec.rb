@@ -9,16 +9,16 @@ describe "/courses/_recent_feedback" do
   end
 
   it 'shows the context when asked to' do
-    @assignment.grade_student(@user, grade: 7)
+    @assignment.grade_student(@user, grade: 7, grader: @teacher)
     @submission.reload
 
     render partial: "courses/recent_feedback", object: @submission, locals: {is_hidden: false, show_context: true}
 
-    expect(response.body).to include(@course.name)
+    expect(response.body).to include(@course.short_name)
   end
 
   it "doesn't show the context when not asked to" do
-    @assignment.grade_student(@user, grade: 7)
+    @assignment.grade_student(@user, grade: 7, grader: @teacher)
     @submission.reload
 
     render partial: "courses/recent_feedback", contexts: [@course], object: @submission, locals: {is_hidden: false}
@@ -36,7 +36,7 @@ describe "/courses/_recent_feedback" do
   end
 
   it 'shows the grade' do
-    @assignment.grade_student(@user, grade: 5782394)
+    @assignment.grade_student(@user, grade: 5782394, grader: @teacher)
     @submission.reload
 
     render :partial => "courses/recent_feedback", object: @submission, locals: {is_hidden: false}

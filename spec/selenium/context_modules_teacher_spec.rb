@@ -415,7 +415,7 @@ describe "context modules" do
       expect(@assignment.reload.context_module_tags.size).to eq 2
     end
 
-    it "should not save an invalid external tool" do
+    it "should not save an invalid external tool", priority: "1", test_id: 2624908 do
       get "/courses/#{@course.id}/modules"
 
       add_module 'Test module'
@@ -1168,20 +1168,20 @@ describe "context modules" do
       wait_for_ajaximations
       f("#tab-tools-link").click
       f(".add_tool_link.lm").click
-      f(".dropdown-toggle").click
-      fln("By URL").click
-      ff(".input-block-level")[2].send_keys("Khan Academy")
-      ff(".input-block-level")[3].send_keys("key")
-      ff(".input-block-level")[4].send_keys("secret")
-      ff(".input-block-level")[5].send_keys("https://www.eduappcenter.com/configurations/rt6spjamqrgkduhr.xml")
-      ff(".btn-primary")[6].click
+      f("#configuration_type_selector").click
+      f("option[value='url']").click
+      ff(".formFields input")[0].send_keys("Khan Academy")
+      ff(".formFields input")[1].send_keys("key")
+      ff(".formFields input")[2].send_keys("secret")
+      ff(".formFields input")[3].send_keys("https://www.eduappcenter.com/configurations/rt6spjamqrgkduhr.xml")
+      f("#submitExternalAppBtn").click
       get "/courses/#{@course.id}/modules"
       add_new_external_item('External Tool', 'https://www.edu-apps.org/lti_public_resources/launch?driver=khan_academy&remote_id=y2-uaPiyoxc', 'Counting with small numbers')
       expect(fln('Counting with small numbers')).to be_displayed
       expect(f('span.publish-icon.unpublished.publish-icon-publish > i.icon-unpublish')).to be_displayed
     end
 
-    it "should add an external tool item to a module" do
+    it "should add an external tool item to a module", priority: "1", test_id: 2624909 do
       get "/courses/#{@course.id}/modules"
       add_new_external_item('External Tool', 'www.instructure.com', 'Instructure')
       expect(fln('Instructure')).to be_displayed

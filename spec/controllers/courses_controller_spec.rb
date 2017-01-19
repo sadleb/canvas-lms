@@ -371,6 +371,18 @@ describe CoursesController do
       student_in_course(active_all: true)
     end
 
+    it "should set tool creation permissions true for roles that are granted rights" do
+      user_session(@teacher)
+      get 'settings', :course_id => @course.id
+      expect(controller.js_env[:PERMISSIONS][:create_tool_manually]).to eq(true)
+    end
+
+    it "should not set tool creation permissions for roles not granted rights" do
+      user_session(@student)
+      get 'settings', :course_id => @course.id
+      expect(controller.js_env[:PERMISSIONS]).to be_nil
+    end
+
     it "should require authorization" do
       get 'settings', :course_id => @course.id
       assert_unauthorized
@@ -439,7 +451,6 @@ describe CoursesController do
       assigned_tool = assigns[:course_settings_sub_navigation_tools].first
       expect(assigned_tool.id).to eq active_tool.id
     end
-
   end
 
   describe "GET 'enrollment_invitation'" do
@@ -673,6 +684,25 @@ describe CoursesController do
       check_course_show(true)
     end
 
+    context 'when default_view is `syllabus`' do
+      before do
+        course_with_student_logged_in(active_course: 1)
+        @course.default_view = 'syllabus'
+        @course.syllabus_body = '<p>This is your syllabus.</p>'
+        @course.save!
+      end
+
+      it 'assigns syllabus_body' do
+        get :show, id: @course.id
+        expect(assigns[:syllabus_body]).not_to be_nil
+      end
+
+      it 'assigns groups' do
+        get :show, id: @course.id
+        expect(assigns[:groups]).not_to be_nil
+      end
+    end
+
     context "show feedback for the current course only on course front page" do
       before(:once) do
         course_with_student(:active_all => true)
@@ -734,9 +764,11 @@ describe CoursesController do
       it "should not show unpublished assignments to students" do
         @course1.default_view = "assignments"
         @course1.save!
-        @a1.unpublish
+        @a1a = @course1.assignments.new(:title => "some assignment course 1", due_at: 1.day.from_now)
+        @a1a.save
+        @a1a.unpublish
         get 'show', :id => @course1.id
-        expect(assigns(:assignments).map(&:id).include?(@a1.id)).to be_falsey
+        expect(assigns(:upcoming_assignments).map(&:id).include?(@a1a.id)).to be_falsey
       end
 
       it "should work for wiki view" do
@@ -755,6 +787,18 @@ describe CoursesController do
         expect(controller.js_env[:WIKI_RIGHTS].symbolize_keys).to eql({:read => true})
         expect(controller.js_env[:PAGE_RIGHTS].symbolize_keys).to eql({:read => true})
         expect(controller.js_env[:COURSE_TITLE]).to eql @course1.name
+      end
+
+      it "should work for wiki view with home page announcements enabled" do
+        @course1.default_view = "wiki"
+        @course1.show_announcements_on_home_page = true
+        @course1.home_page_announcement_limit = 3
+        @course1.save!
+        @course1.wiki.wiki_pages.create!(:title => 'blah').set_as_front_page!
+        get 'show', :id => @course1.id
+        expect(controller.js_env[:COURSE_HOME]).to be_truthy
+        expect(controller.js_env[:SHOW_ANNOUNCEMENTS]).to be_truthy
+        expect(controller.js_env[:ANNOUNCEMENT_LIMIT]).to eq(3)
       end
 
       it "should work for syllabus view" do
@@ -779,6 +823,7 @@ describe CoursesController do
         get 'show', :id => @course3.id
         expect(assigns(:show_recent_feedback)).to be_falsey
       end
+
     end
 
     context "invitations" do
@@ -1030,6 +1075,28 @@ describe CoursesController do
         expect(aua.membership_type).to eq 'StudentEnrollment'
       end
     end
+
+    context "course_home_sub_navigation" do
+      before :once do
+        @course.root_account.enable_feature!(:lor_for_account)
+        @tool = @course.context_external_tools.create(consumer_key: 'test', shared_secret: 'secret', url: 'http://example.com/lti',
+          name: 'tool', course_home_sub_navigation: {enabled: true, visibility: 'admins'})
+      end
+
+      it "should show admin-level course_home_sub_navigation external tools for teachers" do
+        user_session(@teacher)
+
+        get 'show', :id => @course.id
+        expect(assigns[:course_home_sub_navigation_tools].size).to eq 1
+      end
+
+      it "should reject admin-level course_home_sub_navigation external tools for students" do
+        user_session(@student)
+
+        get 'show', :id => @course.id
+        expect(assigns[:course_home_sub_navigation_tools].size).to eq 0
+      end
+    end
   end
 
   describe "POST 'unenroll_user'" do
@@ -1169,6 +1236,17 @@ describe CoursesController do
       run_jobs
       enrollment = @course.reload.teachers.find { |t| t.name == 'Sam' }.enrollments.first
       expect(enrollment.limit_privileges_to_course_section).to eq true
+    end
+
+    it "should also accept a list of user ids (instead of ye old UserList)" do
+      u1 = user
+      u2 = user
+      user_session(@teacher)
+      post 'enroll_users', :course_id => @course.id, :user_ids => [u1.id, u2.id]
+      expect(response).to be_success
+      @course.reload
+      expect(@course.students).to include(u1)
+      expect(@course.students).to include(u2)
     end
   end
 
@@ -1413,6 +1491,83 @@ describe CoursesController do
       Course.where(id: @course).update_all(start_at: Time.now.utc, conclude_at: 1.day.ago)
       put 'update', :id => @course.id, :course => { :name => "name change" }
       expect(flash[:error]).to match(/There was an error saving the changes to the course/)
+    end
+
+    describe "course images" do
+      before :each do
+        user_session(@teacher)
+      end
+
+      it "should allow valid course file ids" do
+        attachment_with_context(@course)
+        put 'update', :id => @course.id, :course => { :image_id => @attachment.id }
+        @course.reload
+        expect(@course.settings[:image_id]).to eq @attachment.id.to_s
+      end
+
+      it "should allow valid urls" do
+        put 'update', :id => @course.id, :course => { :image_url => 'http://farm3.static.flickr.com/image.jpg' }
+        @course.reload
+        expect(@course.settings[:image_url]).to eq 'http://farm3.static.flickr.com/image.jpg'
+      end
+
+      it "should reject invalid urls" do
+        put 'update', :id => @course.id, :course => { :image_url => 'exam ple.com' }
+        @course.reload
+        expect(@course.settings[:image_url]).to be_nil
+      end
+
+      it "should reject random letters and numbers" do
+        put 'update', :id => @course.id, :course => { :image_id => '123a456b78c' }
+        @course.reload
+        expect(@course.settings[:image_id]).to be_nil
+      end
+
+      it "should reject setting both a url and an id at the same time" do
+        put 'update', :id => @course.id, :course => { :image_id => '123a456b78c', :image_url => 'http://example.com' }
+        @course.reload
+        expect(@course.settings[:image_id]).to be_nil
+        expect(@course.settings[:image_url]).to be_nil
+      end
+
+      it "should reject non-course ids" do
+        put 'update', :id => @course.id, :course => { :image_id => 1234134123 }
+        @course.reload
+        expect(@course.settings[:image_id]).to be_nil
+      end
+
+      it "should clear the image_url when setting an image_id" do
+        attachment_with_context(@course)
+        put 'update', :id => @course.id, :course => { :image_url => 'http://farm3.static.flickr.com/image.jpg' }
+        put 'update', :id => @course.id, :course => { :image_id => @attachment.id }
+        @course.reload
+        expect(@course.settings[:image_id]).to eq @attachment.id.to_s
+        expect(@course.settings[:image_url]).to eq ''
+      end
+
+      it "should clear the image_id when setting an image_url" do
+        put 'update', :id => @course.id, :course => { :image_id => '12345678' }
+        put 'update', :id => @course.id, :course => { :image_url => 'http://farm3.static.flickr.com/image.jpg' }
+        @course.reload
+        expect(@course.settings[:image_id]).to eq ''
+        expect(@course.settings[:image_url]).to eq 'http://farm3.static.flickr.com/image.jpg'
+      end
+
+      it "should clear image id after setting remove_image" do
+        put 'update', :id => @course.id, :course => { :image_id => '12345678' }
+        put 'update', :id => @course.id, :course => { :remove_image => true }
+        @course.reload
+        expect(@course.settings[:image_id]).to eq ''
+        expect(@course.settings[:image_url]).to eq ''
+      end
+
+      it "should clear image url after setting remove_image" do
+        put 'update', :id => @course.id, :course => { :image_url => 'http://farm3.static.flickr.com/image.jpg' }
+        put 'update', :id => @course.id, :course => { :remove_image => true }
+        @course.reload
+        expect(@course.settings[:image_id]).to eq ''
+        expect(@course.settings[:image_url]).to eq ''
+      end
     end
   end
 
@@ -1675,6 +1830,46 @@ describe CoursesController do
       Auditors::Course.expects(:record_reset).once.with(@course, anything, @user, anything)
       post 'reset_content', :course_id => @course.id
     end
+  end
+
+  context "visibility_configuration" do
+    let(:controller) { CoursesController.new }
+
+    before do
+      controller.instance_variable_set(:@course, Course.new)
+    end
+
+    it "should allow setting course visibility with flag" do
+
+      controller.visibility_configuration({:course_visibility => 'public'})
+      course = controller.instance_variable_get(:@course)
+
+      expect(course.is_public).to eq true
+
+      controller.visibility_configuration({:course_visibility => 'institution'})
+      expect(course.is_public).to eq false
+      expect(course.is_public_to_auth_users).to eq true
+
+      controller.visibility_configuration({:course_visibility => 'course'})
+      expect(course.is_public).to eq false
+      expect(course.is_public).to eq false
+    end
+
+    it "should allow setting syllabus visibility with flag" do
+      controller.visibility_configuration({:course_visibility => 'course', :syllabus_visibility_option => 'public'})
+      course = controller.instance_variable_get(:@course)
+
+      expect(course.public_syllabus).to eq true
+
+      controller.visibility_configuration({:course_visibility => 'course', :syllabus_visibility_option => 'institution'})
+      expect(course.public_syllabus).to eq false
+      expect(course.public_syllabus_to_auth).to eq true
+
+      controller.visibility_configuration({:course_visibility => 'course', :syllabus_visibility_option => 'course'})
+      expect(course.public_syllabus).to eq false
+      expect(course.public_syllabus_to_auth).to eq false
+    end
+
   end
 
   context "changed_settings" do

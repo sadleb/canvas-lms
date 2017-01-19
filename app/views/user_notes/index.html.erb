@@ -8,9 +8,7 @@
 
 <% if can_do(@user, @current_user, :create_user_notes) %>
   <% content_for :right_side do %>
-    <div class="rs-margin-lr rs-margin-top">
-      <a id="new_user_note_button" class="new btn button-sidebar-wide icon-add" href="#"><%= t 'links.create_new_entry', "Create a New Entry" %></a>
-    </div>
+    <a id="new_user_note_button" class="new btn button-sidebar-wide icon-add" href="#"><%= t 'links.create_new_entry', "Create a New Entry" %></a>
   <% end %>
 <% end %>
 
@@ -21,10 +19,14 @@
     <%= f.hidden_field :user_id, :value=>@user.id %>
     <table class="formtable" style="width: 100%;">
       <tr>
-        <td><%= f.text_field :title, :class => "title", :style => "width: 98%;", :placeholder => t(:title, "Title") %></td>
+        <td>
+          <%= f.label :title, t("Title") %>
+          <%= f.text_field :title, :class => "title", :style => "width: 98%;", :placeholder => t(:title, "Title") %>
+        </td>
       </tr>
       <tr>
         <td colspan="2">
+          <%= f.label :note, t("Note") %>
           <%= f.text_area :note, :class => "note", :style => "width: 98%; height: 200px;" %>
         </td>
       </tr>

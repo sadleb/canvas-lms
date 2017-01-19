@@ -298,7 +298,7 @@ module AuthenticationMethods
         store_location
         flash[:warning] = I18n.t('lib.auth.errors.not_authenticated', "You must be logged in to access this page") unless request.path == '/'
         if params[:canvas_login]
-          redirect_to login_url(params.slice(:canvas_login, :authentication_provider))
+          redirect_to login_url(strong_params.permit(:canvas_login, :authentication_provider))
           return
         else
           # This code is borrowed from the login/cas_controller
@@ -307,7 +307,7 @@ module AuthenticationMethods
         end
 
         if scope.empty?
-          redirect_to login_url(params.slice(:canvas_login, :authentication_provider))
+          redirect_to login_url(strong_params.permit(:canvas_login, :authentication_provider))
           return
         else
           #... so if SSO is set, we can send them there directly, instead of through

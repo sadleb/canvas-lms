@@ -109,7 +109,7 @@ class PluginSetting < ActiveRecord::Base
   end
 
   def self.settings_for_plugin(name, plugin=nil)
-    RequestCache.cache('settings_for_plugin', name) do
+    RequestCache.cache(settings_cache_key(name)) do
       if (plugin_setting = cached_plugin_setting(name)) && plugin_setting.valid_settings? && plugin_setting.enabled?
         plugin_setting.plugin = plugin
         settings = plugin_setting.settings
@@ -124,7 +124,7 @@ class PluginSetting < ActiveRecord::Base
   end
 
   def self.settings_cache_key(name)
-    ["settings_for_plugin3", name].cache_key
+    ["settings_for_plugin4", name].cache_key
   end
 
   def clear_cache

@@ -37,12 +37,17 @@ module Canvas
   end
 
   def self.reconnect_redis
-    @redis = nil
     if Rails.cache && Rails.cache.respond_to?(:reconnect)
       Canvas::Redis.handle_redis_failure(nil, "none") do
         Rails.cache.reconnect
       end
     end
+
+    return unless @redis
+    # We're sharing redis connections between Canvas.redis and Rails.cache,
+    # so don't call reconnect on the cache too.
+    return if Rails.cache.respond_to?(:data) && @redis.__getobj__ == Rails.cache.data
+    @redis = nil
   end
 
   def self.cache_stores
@@ -164,6 +169,35 @@ module Canvas
     end
   end
 
+  DEFAULT_RETRY_CALLBACK = -> (ex, tries) {
+      Rails.logger.debug do
+        {
+          error_class: ex.class,
+          error_message: ex.message,
+          error_backtrace: ex.backtrace,
+          tries: tries,
+          message: "Retrying service call!"
+        }.to_json
+      end
+    }
+
+  DEFAULT_RETRIABLE_OPTIONS = {
+    interval: -> (attempts) { 0.5 + 4 ** (attempts - 1) }, # Sleeps: 0.5, 4.5, 16.5
+    on_retry: DEFAULT_RETRY_CALLBACK,
+    tries: 3,
+  }.freeze
+  def self.retriable(opts = {}, &block)
+    if opts[:on_retry]
+      original_callback = opts[:on_retry]
+      opts[:on_retry] = -> (ex, tries) {
+        original_callback.call(ex, tries)
+        DEFAULT_RETRY_CALLBACK.call(ex, tries)
+      }
+    end
+    options = DEFAULT_RETRIABLE_OPTIONS.merge(opts)
+    Retriable.retriable(options, &block)
+  end
+
   def self.installation_uuid
     installation_uuid = Setting.get("installation_uuid", "")
     if installation_uuid == ""
@@ -203,6 +237,7 @@ module Canvas
     raise if options[:raise_on_timeout]
     return nil
   rescue Timeout::Error => e
+    Rails.logger.error("Timeout during service call: #{service_name}")
     Canvas::Errors.capture_exception(:service_timeout, e)
     raise if options[:raise_on_timeout]
     return nil

@@ -1,3 +1,5 @@
+# TODO: this is the old file.  The new one is up one level.  Get it working with 
+# our dev scripts and then delete this copy
 FROM instructure/ruby-passenger:2.1
 
 USER root

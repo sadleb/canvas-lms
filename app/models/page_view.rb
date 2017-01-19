@@ -29,6 +29,8 @@ class PageView < ActiveRecord::Base
   before_save :cap_interaction_seconds
   belongs_to :context, polymorphic: [:course, :account, :group, :user, :user_profile], polymorphic_prefix: true
 
+  CONTEXT_TYPES = %w{Course Account Group User UserProfile}.freeze
+
   attr_accessor :generated_by_hand
   attr_accessor :is_update
 
@@ -189,11 +191,23 @@ class PageView < ActiveRecord::Base
   end
 
   def self.find_all_by_id(ids)
-    PageView.cassandra? ? PageView::EventStream.fetch(ids) : where(request_id: ids).to_a
+    if PageView.cassandra?
+      PageView::EventStream.fetch(ids)
+    elsif PageView.pv4?
+      []
+    else
+      where(request_id: ids).to_a
+    end
   end
 
   def self.find_by_id(id)
-    PageView.cassandra? ? PageView::EventStream.fetch([id]).first : where(request_id: id).first
+    if PageView.cassandra?
+      PageView::EventStream.fetch([id]).first
+    elsif PageView.pv4?
+      nil
+    else
+      where(request_id: id).first
+    end
   end
 
   def self.from_attributes(attrs, new_record=false)

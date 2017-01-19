@@ -98,7 +98,9 @@ describe "Files API", type: :request do
         'created_at' => @attachment.created_at.as_json,
         'updated_at' => @attachment.updated_at.as_json,
         'thumbnail_url' => nil,
-        'modified_at' => @attachment.modified_at.as_json
+        'modified_at' => @attachment.modified_at.as_json,
+        'mime_class' => @attachment.mime_class,
+        'media_entry_id' => @attachment.media_entry_id
       })
       expect(@attachment.file_state).to eq 'available'
     end
@@ -131,9 +133,23 @@ describe "Files API", type: :request do
         'created_at' => @attachment.created_at.as_json,
         'updated_at' => @attachment.updated_at.as_json,
         'thumbnail_url' => nil,
-        'modified_at' => @attachment.modified_at.as_json
+        'modified_at' => @attachment.modified_at.as_json,
+        'mime_class' => @attachment.mime_class,
+        'media_entry_id' => @attachment.media_entry_id
       })
       expect(@attachment.reload.file_state).to eq 'available'
+    end
+
+    it "includes usage rights if overwriting a file that has them already" do
+      usage_rights = @course.usage_rights.create! use_justification: 'creative_commons', legal_copyright: '(C) 2014 XYZ Corp', license: 'cc_by_nd'
+      @attachment.usage_rights = usage_rights
+      @attachment.save!
+      upload_data
+      json = call_create_success
+      expect(json['usage_rights']).to eq({"use_justification"=>"creative_commons",
+                                          "license"=>"cc_by_nd",
+                                          "legal_copyright"=>"(C) 2014 XYZ Corp",
+                                          "license_name"=>"CC Attribution No Derivatives"})
     end
 
     it "should store long-ish non-ASCII filenames (local storage)" do
@@ -608,7 +624,9 @@ describe "Files API", type: :request do
               'created_at' => @att.created_at.as_json,
               'updated_at' => @att.updated_at.as_json,
               'thumbnail_url' => @att.thumbnail_url,
-              'modified_at' => @att.updated_at.as_json
+              'modified_at' => @att.modified_at.as_json,
+              'mime_class' => @att.mime_class,
+              'media_entry_id' => @att.media_entry_id
       })
     end
 
@@ -926,7 +944,7 @@ describe "Files API", type: :request do
 
   describe "quota" do
     let_once(:t_course) do
-      course_with_teacher_logged_in active_all: true
+      course_with_teacher active_all: true
       @course.storage_quota = 111.megabytes
       @course.save
       attachment_model context: @course, size: 33.megabytes
@@ -935,6 +953,10 @@ describe "Files API", type: :request do
 
     let_once(:t_teacher) do
       t_course.teachers.first
+    end
+
+    before(:each) do
+      user_session(@teacher)
     end
 
     it "should return total and used quota" do

@@ -82,7 +82,7 @@ define [
       $target = $(e.currentTarget)
       @fromAddButton = true
       assignToGroupMenu = @_getAssignToGroup()
-      assignToGroupMenu.model = @collection.get($target.data('user-id'))
+      assignToGroupMenu.model = @collection.getUser($target.data('user-id'))
       assignToGroupMenu.showBy($target, true)
 
     showAssignToGroup: (e) ->
@@ -92,7 +92,7 @@ define [
       $target = $(e.currentTarget)
 
       assignToGroupMenu = @_getAssignToGroup()
-      assignToGroupMenu.model = @collection.get($target.data('user-id'))
+      assignToGroupMenu.model = @collection.getUser($target.data('user-id'))
       assignToGroupMenu.showBy($target)
 
 
@@ -104,9 +104,16 @@ define [
         )
         @assignToGroupMenu.on("close", (options) =>
           studentElements = $("li.group-user a.assign-to-group", @$el)
-          if @elementIndex != -1 and options.escapePressed and studentElements.length > 0
-            focusElement = $(studentElements[@elementIndex] || studentElements[studentElements.length - 1])
-            focusElement.focus()
+          if @elementIndex != -1
+            if studentElements.length == 0
+              $('.filterable-unassigned-users').focus()
+            else if options.escapePressed
+              $(studentElements[@elementIndex] || studentElements[studentElements.length - 1]).focus()
+            else if options.userMoved
+              if @elementIndex == 0
+                $('.filterable-unassigned-users').focus()
+              else
+                $(studentElements[@elementIndex - 1] || studentElements[studentElements.length - 1]).focus()
             @elementIndex = -1
         )
       return @assignToGroupMenu

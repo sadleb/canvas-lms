@@ -1,96 +1,141 @@
 define([
   'react',
+  'react-dom',
+  'react-addons-test-utils',
   'jquery',
   'jsx/shared/conditional_release/ConditionalRelease'
-], (React, $, ConditionalRelease) => {
+], (React, ReactDOM, TestUtils, $, ConditionalRelease) => {
 
-  const TestUtils = React.addons.TestUtils;
-  let component = null;
-
-  module('Conditional Release component', {
-    teardown: () => {
-      if (component) {
-        const componentNode = React.findDOMNode(component);
-        if (componentNode) {
-          React.unmountComponentAtNode(componentNode.parentNode);
-        }
+  let editor = null
+  window.conditional_release_module = {
+    ConditionalReleaseEditor: (env) => {
+      editor = {
+        attach: sinon.stub(),
+        updateAssignment: sinon.stub(),
+        saveRule: sinon.stub(),
+        getErrors: sinon.stub(),
+        focusOnError: sinon.stub(),
+        env
       }
-      component = null;
+      return editor
     }
-  });
+  }
 
-  const assignmentEnv = { assignment: { id: 1 }, edit_rule_url: 'about:blank', jwt: 'foo' }
+  let component = null
+  const createComponent = (submitCallback) => {
+    component = TestUtils.renderIntoDocument(
+      <ConditionalRelease.Editor env={assignmentEnv} type='foo' />
+    )
+    component.createEditor()
+  }
+
+  const makePromise = () => {
+    const promise = {}
+    promise.then = sinon.stub().returns(promise)
+    promise.catch = sinon.stub().returns(promise)
+    return promise
+  }
+
+  let ajax = null
+  const assignmentEnv = { assignment: { id: 1 }, editor_url: 'editorurl', jwt: 'foo' }
   const noAssignmentEnv = { edit_rule_url: 'about:blank', jwt: 'foo' }
   const assignmentNoIdEnv = { assignment: { foo: 'bar' }, edit_rule_url: 'about:blank', jwt: 'foo' }
 
-  test('it disables its button when no assignment', () => {
-    component = TestUtils.renderIntoDocument(
-      <ConditionalRelease.Editor env={noAssignmentEnv} type='foo' />
-    );
-    const button = React.findDOMNode(component.refs.button);
-    equal(button.disabled, true)
-  });
+  module('Conditional Release component', {
+    setup: () => {
+      ajax = sinon.stub($, 'ajax')
+      createComponent()
+    },
 
-  test('it shows the help text when no assignment', () => {
-    component = TestUtils.renderIntoDocument(
-      <ConditionalRelease.Editor env={noAssignmentEnv} type='foo' />
-    );
-    ok(component.refs.saveDataMessage);
-  });
+    teardown: () => {
+      if (component) {
+        const componentNode = ReactDOM.findDOMNode(component)
+        if (componentNode) {
+          ReactDOM.unmountComponentAtNode(componentNode.parentNode)
+        }
+      }
+      component = null
+      editor = null
+      ajax.restore()
+    }
+  })
 
-  test('it shows the help text when an assignment but no id', () => {
-    component = TestUtils.renderIntoDocument(
-      <ConditionalRelease.Editor env={assignmentNoIdEnv} type='foo' />
-    );
-    ok(component.refs.saveDataMessage);
-  });
+  test('it loads a cyoe editor on mount', () => {
+    ok(ajax.calledOnce)
+    ok(ajax.calledWithMatch({ url: 'editorurl' }))
+  })
 
-  test('it enabled its button when there is an assignment', () => {
-    component = TestUtils.renderIntoDocument(
-      <ConditionalRelease.Editor env={assignmentEnv} type='foo' />
-    );
-    const button = React.findDOMNode(component.refs.button);
-    equal(button.disabled, false)
-  });
+  test('it creates a cyoe editor', () => {
+    ok(editor.attach.calledOnce)
+  })
 
-  test('it does not show the help text when there is an assignment', () => {
-    component = TestUtils.renderIntoDocument(
-      <ConditionalRelease.Editor env={assignmentEnv} type='foo' />
-    );
-    notOk(component.refs.saveDataMessage);
-  });
+  test('it forwards focusOnError', () => {
+    component.focusOnError()
+    ok(editor.focusOnError.calledOnce)
+  })
 
-  test('it adds the hidden form when mounted', () => {
-    component = TestUtils.renderIntoDocument(
-      <ConditionalRelease.Editor env={assignmentEnv} type='foo' />
-    );
-    ok(document.contains(component.hiddenContainer().get(0)))
-  });
+  test('it transforms validations', () => {
+    editor.getErrors.returns([
+      { index: 0, error: 'foo bar' },
+      { index: 0, error: 'baz bat' },
+      { index: 1, error: 'foo baz' }
+    ])
+    const transformed = component.validateBeforeSave()
+    deepEqual(transformed, [
+      { message: 'foo bar' },
+      { message: 'baz bat' },
+      { message: 'foo baz' }
+    ])
+  })
 
-  test('it removes the hidden form when unmounted', () => {
-    component = TestUtils.renderIntoDocument(
-      <ConditionalRelease.Editor env={assignmentEnv} type='foo' />
-    );
-    const removed = React.unmountComponentAtNode(React.findDOMNode(component).parentNode);
-    ok(removed)
-    notOk(document.contains(component.hiddenContainer().get(0)))
+  test('it returns null if no errors on validation', () => {
+    editor.getErrors.returns([])
+    equal(null, component.validateBeforeSave())
+  })
 
-    component = null; // we've already removed, skip teardown
-  });
+  test('it saves successfully when editor saves successfully', (assert) => {
+    const resolved = assert.async()
+    const cyoePromise = makePromise()
 
-  test('it pops up the modal when the button is clicked', () => {
-    component = TestUtils.renderIntoDocument(
-      <ConditionalRelease.Editor env={assignmentEnv} type='foo' />
-    );
-    sinon.spy(component, 'submitForm');
-    TestUtils.Simulate.click(component.refs.button);
-    ok(component.submitForm.called);
-  });
+    editor.saveRule.returns(cyoePromise)
 
-  test('it disables when data is dirty', () => {
-    component = TestUtils.renderIntoDocument(
-      <ConditionalRelease.Editor env={assignmentEnv} type='foo' assignmentDirty={true} />
-    );
-    notOk(component.enabled());
-  });
-});
+    const promise = component.save()
+    promise.then(() => {
+      ok(true)
+      resolved()
+    })
+    cyoePromise.then.args[0][0]()
+  })
+
+  test('it fails when editor fails', (assert) => {
+    const resolved = assert.async()
+    const cyoePromise = makePromise()
+    editor.saveRule.returns(cyoePromise)
+
+    const promise = component.save()
+    promise.fail((reason) => {
+      equal(reason, 'stuff happened')
+      resolved()
+    })
+    cyoePromise.catch.args[0][0]('stuff happened')
+  })
+
+  test('it times out', (assert) => {
+    const resolved = assert.async()
+    const cyoePromise = makePromise()
+    editor.saveRule.returns(cyoePromise)
+
+    const promise = component.save(2)
+    promise.fail((reason) => {
+      ok(reason.match(/timeout/))
+      resolved()
+    })
+  })
+
+  test('it updates assignments', (assert) => {
+    component.updateAssignment({
+      points_possible: 100
+    })
+    ok(editor.updateAssignment.calledWithMatch({ points_possible: 100 }))
+  })
+})

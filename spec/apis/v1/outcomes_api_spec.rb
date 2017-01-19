@@ -90,7 +90,7 @@ describe "Outcomes API", type: :request do
     @e = @course.enroll_student(@student)
     @a = @rubric.associate_with(@assignment, @course, :purpose => 'grading')
     @assignment.reload
-    @submission = @assignment.grade_student(@student, :grade => "10").first
+    @submission = @assignment.grade_student(@student, grade: "10", grader: @teacher).first
     @assessment = @a.assess({
       :user => @student,
       :assessor => @teacher,
@@ -283,6 +283,20 @@ describe "Outcomes API", type: :request do
                      :id => @outcome.id.to_s,
                      :format => 'json')
         expect(json).to eq(outcome_json(@outcome, { :calculation_method => "highest", :can_edit => true }))
+      end
+
+      it "should report as assessed if assessments exist in any aligned course" do
+        course_with_teacher(active_all: true)
+        student_in_course(active_all: true)
+        assignment_model({:course => @course})
+        assess_outcome(@outcome)
+        raw_api_call(:get, "/api/v1/outcomes/#{@outcome.id}",
+                     :controller => 'outcomes_api',
+                     :action => 'show',
+                     :id => @outcome.id.to_s,
+                     :format => 'json')
+        json = controller.outcome_json(@outcome, @account_user, session, {assessed_outcomes: [@outcome]})
+        expect(json["assessed"]).to be true
       end
     end
 

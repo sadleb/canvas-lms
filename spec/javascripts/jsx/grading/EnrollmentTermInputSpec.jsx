@@ -1,10 +1,11 @@
 define([
   'react',
+  'react-dom',
+  'react-addons-test-utils',
   'underscore',
   'jsx/grading/EnrollmentTermInput'
-], (React, _, Input) => {
+], (React, ReactDOM, {findRenderedDOMComponentWithClass}, _, Input) => {
   const wrapper = document.getElementById('fixtures');
-  const { findRenderedDOMComponentWithClass } = React.addons.TestUtils;
 
   module('EnrollmentTermInput', {
     renderComponent(props={}) {
@@ -49,18 +50,18 @@ define([
       };
 
       const element = React.createElement(Input, _.defaults(props, defaultProps));
-      return React.render(element, wrapper);
+      return ReactDOM.render(element, wrapper);
     },
 
     teardown() {
-      React.unmountComponentAtNode(wrapper);
+      ReactDOM.unmountComponentAtNode(wrapper);
     }
   });
 
   test("displays 'No unassigned terms' if there are no selectable terms", function() {
     let enrollmentTermInput = this.renderComponent({ enrollmentTerms: [], selectedIDs: [] });
     const header = findRenderedDOMComponentWithClass(enrollmentTermInput, "ic-tokeninput-header");
-    const title = React.findDOMNode(header).textContent
+    const title = ReactDOM.findDOMNode(header).textContent
     equal(title, "No unassigned terms");
   });
 

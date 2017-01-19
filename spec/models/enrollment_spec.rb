@@ -214,7 +214,8 @@ describe Enrollment do
 
   context "drop scores" do
     before(:once) do
-      course_with_student
+      course_with_teacher
+      course_with_student(course: @course)
       @group = @course.assignment_groups.create!(:name => "some group", :group_weight => 50, :rules => "drop_lowest:1")
       @assignment = @group.assignments.build(:title => "some assignments", :points_possible => 10)
       @assignment.context = @course
@@ -228,10 +229,10 @@ describe Enrollment do
       @enrollment = @user.enrollments.first
       @group.update_attribute(:rules, "drop_highest:1")
       expect(@enrollment.reload.computed_current_score).to eql(nil)
-      @submission = @assignment.grade_student(@user, :grade => "9")
+      @submission = @assignment.grade_student(@user, grade: "9", grader: @teacher)
       expect(@submission[0].score).to eql(9.0)
       expect(@enrollment.reload.computed_current_score).to eql(90.0)
-      @submission2 = @assignment2.grade_student(@user, :grade => "20")
+      @submission2 = @assignment2.grade_student(@user, grade: "20", grader: @teacher)
       expect(@submission2[0].score).to eql(20.0)
       expect(@enrollment.reload.computed_current_score).to eql(50.0)
       @group.update_attribute(:rules, nil)
@@ -241,8 +242,8 @@ describe Enrollment do
     it "should drop low scores for groups when specified" do
       @enrollment = @user.enrollments.first
       expect(@enrollment.reload.computed_current_score).to eql(nil)
-      @submission = @assignment.grade_student(@user, :grade => "9")
-      @submission2 = @assignment2.grade_student(@user, :grade => "20")
+      @submission = @assignment.grade_student(@user, grade: "9", grader: @teacher)
+      @submission2 = @assignment2.grade_student(@user, grade: "20", grader: @teacher)
       expect(@submission2[0].score).to eql(20.0)
       expect(@enrollment.reload.computed_current_score).to eql(90.0)
       @group.update_attribute(:rules, "")
@@ -253,10 +254,10 @@ describe Enrollment do
       @enrollment = @user.enrollments.first
       @group.update_attribute(:rules, "drop_lowest:2")
       expect(@enrollment.reload.computed_current_score).to eql(nil)
-      @submission = @assignment.grade_student(@user, :grade => "9")
+      @submission = @assignment.grade_student(@user, grade: "9", grader: @teacher)
       expect(@submission[0].score).to eql(9.0)
       expect(@enrollment.reload.computed_current_score).to eql(90.0)
-      @submission2 = @assignment2.grade_student(@user, :grade => "20")
+      @submission2 = @assignment2.grade_student(@user, grade: "20", grader: @teacher)
       expect(@submission2[0].score).to eql(20.0)
       expect(@enrollment.reload.computed_current_score).to eql(90.0)
     end
@@ -520,8 +521,7 @@ describe Enrollment do
         @enrollment.workflow_state = 'invited'
         @enrollment.save!
         expect(@enrollment.state).to eql(:invited)
-        @enrollment.accept
-        expect(@enrollment.reload.state).to eql(:active)
+        @enrollment.accept if @enrollment.invited?
         expect(@enrollment.state_based_on_date).to eql(state_based_state)
 
         @course.start_at = 2.days.from_now
@@ -552,6 +552,7 @@ describe Enrollment do
         @enrollment.workflow_state = 'invited'
         @enrollment.save!
         expect(@enrollment.state).to eql(:invited)
+        expect(@enrollment.state_based_on_date).to eql(:invited)
         @enrollment.accept
         expect(@enrollment.reload.state).to eql(:active)
         expect(@enrollment.state_based_on_date).to eql(:active)
@@ -562,19 +563,17 @@ describe Enrollment do
         @enrollment.workflow_state = 'invited'
         @enrollment.save!
         expect(@enrollment.state).to eql(:invited)
-        @enrollment.accept
-        expect(@enrollment.reload.state).to eql(:active)
         expect(@enrollment.state_based_on_date).to eql(:completed)
+        expect(@enrollment.accept).to be_falsey
 
         @term.start_at = 2.days.from_now
         @term.end_at = 4.days.from_now
         @term.save!
-        @enrollment.workflow_state = 'invited'
-        @enrollment.save!
         @enrollment.reload
         expect(@enrollment.state).to eql(:invited)
         expect(@enrollment.state_based_on_date).to eql(:invited)
         expect(@enrollment.accept).to be_truthy
+        expect(@enrollment.reload.state_based_on_date).to eql(@enrollment.admin? ? :active : :accepted)
       end
 
       def enrollment_dates_override_test
@@ -598,8 +597,6 @@ describe Enrollment do
         @enrollment.workflow_state = 'invited'
         @enrollment.save!
         expect(@enrollment.state).to eql(:invited)
-        @enrollment.accept
-        expect(@enrollment.reload.state).to eql(:active)
         expect(@enrollment.state_based_on_date).to eql(:completed)
 
         @override.start_at = 2.days.from_now
@@ -759,6 +756,7 @@ describe Enrollment do
           @enrollment.workflow_state = 'active'
           expect(@enrollment.reload.state).to eql(:active)
           expect(@enrollment.state_based_on_date).to eql(:active)
+          expect(Enrollment.where(:id => @enrollment).active_by_date.first).to eq @enrollment
         end
 
         it "should return completed" do
@@ -768,6 +766,7 @@ describe Enrollment do
           @term.save!
           expect(@enrollment.reload.state).to eql(:active)
           expect(@enrollment.state_based_on_date).to eql(:completed)
+          expect(Enrollment.where(:id => @enrollment).active_by_date.first).to be_nil
         end
 
         it "should return accepted for students (inactive for admins) if upcoming and available" do
@@ -788,6 +787,9 @@ describe Enrollment do
           @course.save!
           expect(@enrollment.reload.state).to eql(:active)
           expect(@enrollment.state_based_on_date).to eql(@enrollment.admin? ? :active : :inactive)
+          if @enrollment.student?
+            expect(Enrollment.where(:id => @enrollment).active_by_date.first).to be_nil
+          end
         end
       end
 
@@ -1883,21 +1885,23 @@ describe Enrollment do
       let(:user) { stub(:id => 42) }
       let(:session) { stub }
 
-      it 'is true for a user who has been granted the right' do
-        context = stub(:grants_right? => true)
+      it 'is true for a user who has been granted :manage_students' do
+        context = Object.new
+        context.stubs(:grants_right?).with(user, session, :manage_students).returns(true)
+        context.stubs(:grants_right?).with(user, session, :manage_admin_users).returns(false)
         expect(enrollment.can_be_deleted_by(user, context, session)).to be_truthy
       end
 
-      it 'is false for a user without the right' do
+      it 'is false for a user without :manage_students' do
         context = stub(:grants_right? => false)
         expect(enrollment.can_be_deleted_by(user, context, session)).to be_falsey
       end
 
-      it 'is true for a user who can manage_admin_users' do
+      it 'is false for someone with :manage_admin_users but without :manage_students' do
         context = Object.new
         context.stubs(:grants_right?).with(user, session, :manage_students).returns(false)
         context.stubs(:grants_right?).with(user, session, :manage_admin_users).returns(true)
-        expect(enrollment.can_be_deleted_by(user, context, session)).to be_truthy
+        expect(enrollment.can_be_deleted_by(user, context, session)).to be_falsey
       end
 
       it 'is false if a user is trying to remove their own enrollment' do
@@ -1906,6 +1910,33 @@ describe Enrollment do
         context.stubs(:grants_right?).with(user, session, :manage_admin_users).returns(false)
         context.stubs(:account => context)
         enrollment.user_id = user.id
+        expect(enrollment.can_be_deleted_by(user, context, session)).to be_falsey
+      end
+    end
+
+    describe 'on an observer enrollment' do
+      let(:enrollment) { ObserverEnrollment.new }
+      let(:user) { stub(:id => 42) }
+      let(:session) { stub }
+
+      it 'is true with :manage_students' do
+        context = Object.new
+        context.stubs(:grants_right?).with(user, session, :manage_students).returns(true)
+        context.stubs(:grants_right?).with(user, session, :manage_admin_users).returns(false)
+        expect(enrollment.can_be_deleted_by(user, context, session)).to be_truthy
+      end
+
+      it 'is true with :manage_admin_users' do
+        context = Object.new
+        context.stubs(:grants_right?).with(user, session, :manage_students).returns(false)
+        context.stubs(:grants_right?).with(user, session, :manage_admin_users).returns(true)
+        expect(enrollment.can_be_deleted_by(user, context, session)).to be_truthy
+      end
+
+      it 'is false otherwise' do
+        context = Object.new
+        context.stubs(:grants_right?).with(user, session, :manage_students).returns(false)
+        context.stubs(:grants_right?).with(user, session, :manage_admin_users).returns(false)
         expect(enrollment.can_be_deleted_by(user, context, session)).to be_falsey
       end
     end
@@ -2081,5 +2112,35 @@ describe Enrollment do
       @enrollment.restore
       expect(@user.user_account_associations.where(account: sub_account).exists?).to eq true
     end
+  end
+
+  it "should order by state based on date correctly" do
+    u = user(:active_all => true)
+    c1 = course(:active_all => true)
+    c1.start_at = 1.day.from_now
+    c1.conclude_at = 2.days.from_now
+    c1.restrict_enrollments_to_course_dates = true
+    c1.restrict_student_future_view = true
+    c1.save!
+    restricted_enroll = c1.enroll_student(u)
+
+    c2 = course(:active_all => true)
+    c2.start_at = 1.day.from_now
+    c2.conclude_at = 2.days.from_now
+    c2.restrict_enrollments_to_course_dates = true
+    c2.save!
+    future_enroll = c2.enroll_student(u)
+
+    c3 = course(:active_all => true)
+    active_enroll = c3.enroll_student(u)
+
+    [restricted_enroll, future_enroll, active_enroll].each do |e|
+      e.workflow_state = 'active'
+      e.save!
+    end
+
+    enrolls = Enrollment.where(:id => [restricted_enroll, future_enroll, active_enroll]).
+      joins(:enrollment_state).order(Enrollment.state_by_date_rank_sql).to_a
+    expect(enrolls).to eq [active_enroll, future_enroll, restricted_enroll]
   end
 end

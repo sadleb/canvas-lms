@@ -53,7 +53,7 @@ module UserSearch
 
     users = if context.is_a?(Account)
               User.of_account(context).active
-            elsif context.is_a?(Course) && !options.fetch(:force_users_visible_to, false)
+            elsif context.is_a?(Course)
               context.users_visible_to(searcher, include_prior_enrollments,
                 enrollment_state: enrollment_states, include_inactive: include_inactive_enrollments).uniq
             else
@@ -107,7 +107,7 @@ module UserSearch
          WHERE communication_channels.user_id = users.id
            AND communication_channels.path_type = ?
            AND #{like_condition('communication_channels.path')}
-           AND communication_channels.workflow_state='active'))
+           AND communication_channels.workflow_state in ('active', 'unconfirmed')))
     SQL
   end
 

@@ -1,4 +1,4 @@
-define(['jquery', 'jsx/gradebook2/CheatDepaginator', 'underscore'], ($, cheaterDepaginate, _) => {
+define(['jquery', 'jsx/shared/CheatDepaginator', 'underscore'], ($, cheaterDepaginate, _) => {
   // loaders
   const getAssignmentGroups = (url, params) => {
     return cheaterDepaginate(url, params);
@@ -7,6 +7,9 @@ define(['jquery', 'jsx/gradebook2/CheatDepaginator', 'underscore'], ($, cheaterD
     return $.ajaxJSON(url, "GET", {});
   };
   const getSections = (url) => {
+    return $.ajaxJSON(url, "GET", {});
+  };
+  const getEffectiveDueDates = (url) => {
     return $.ajaxJSON(url, "GET", {});
   };
 
@@ -100,6 +103,7 @@ define(['jquery', 'jsx/gradebook2/CheatDepaginator', 'underscore'], ($, cheaterD
 
   const loadGradebookData = (opts) => {
     const gotAssignmentGroups = getAssignmentGroups(opts.assignmentGroupsURL, opts.assignmentGroupsParams);
+    const gotEffectiveDueDates = getEffectiveDueDates(opts.effectiveDueDatesURL);
     const gotCustomColumns = getCustomColumns(opts.customColumnsURL);
     const gotStudents = getStudents(opts.studentsURL, opts.studentsParams, opts.studentsPageCb);
     const gotSubmissions = getSubmissions(opts.submissionsURL, opts.submissionsParams, opts.submissionsChunkCb, opts.submissionsChunkSize);
@@ -115,8 +119,9 @@ define(['jquery', 'jsx/gradebook2/CheatDepaginator', 'underscore'], ($, cheaterD
       gotStudents: gotStudents,
       gotSubmissions: gotSubmissions,
       gotCustomColumnData: gotCustomColumnData,
+      gotEffectiveDueDates: gotEffectiveDueDates,
     };
   };
 
-  return loadGradebookData;
+  return { loadGradebookData: loadGradebookData, getDataForColumn: getDataForColumn };
 });

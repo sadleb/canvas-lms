@@ -47,9 +47,9 @@ describe "account" do
     it "should be able to create a new course when no other courses exist" do
       Account.default.courses.each do |c|
         c.course_account_associations.scope.delete_all
-        c.enrollments.scope.delete_all
+        c.enrollments.each(&:destroy_permanently!)
         c.course_sections.scope.delete_all
-        c.destroy_permanently!
+        c.reload.destroy_permanently!
       end
 
       get "/accounts/#{Account.default.to_param}"
@@ -90,8 +90,8 @@ describe "account" do
       verify_displayed_term_dates(term, {
           :general => ["Jul 1", "Jul 31"],
           :student_enrollment => ["term start", "term end"],
-          :teacher_enrollment => ["term start", "term end"],
-          :ta_enrollment => ["term start", "term end"]
+          :teacher_enrollment => ["whenever", "term end"],
+          :ta_enrollment => ["whenever", "term end"]
       })
     end
 
@@ -106,8 +106,8 @@ describe "account" do
       verify_displayed_term_dates(term, {
           :general => ["whenever", "whenever"],
           :student_enrollment => ["Jul 2", "Jul 30"],
-          :teacher_enrollment => ["term start", "term end"],
-          :ta_enrollment => ["term start", "term end"]
+          :teacher_enrollment => ["whenever", "term end"],
+          :ta_enrollment => ["whenever", "term end"]
       })
     end
 
@@ -123,7 +123,7 @@ describe "account" do
           :general => ["whenever", "whenever"],
           :student_enrollment => ["term start", "term end"],
           :teacher_enrollment => ["Jul 3", "Jul 29"],
-          :ta_enrollment => ["term start", "term end"]
+          :ta_enrollment => ["whenever", "term end"]
       })
     end
 
@@ -138,7 +138,7 @@ describe "account" do
       verify_displayed_term_dates(term, {
           :general => ["whenever", "whenever"],
           :student_enrollment => ["term start", "term end"],
-          :teacher_enrollment => ["term start", "term end"],
+          :teacher_enrollment => ["whenever", "term end"],
           :ta_enrollment => ["Jul 4", "Jul 28"]
       })
     end
@@ -169,7 +169,7 @@ describe "account" do
     it "should search for an existing course" do
       find_course_form = f('#new_course')
       submit_input(find_course_form, '#course_name', @course_name)
-      expect(f(ENV['CANVAS_FORCE_USE_NEW_STYLES'] ? '#breadcrumbs .home + li a' : '#section-tabs-header')).to include_text(@course_name)
+      expect(f('#breadcrumbs .home + li a')).to include_text(@course_name)
     end
 
     it "should correctly autocomplete for courses" do

@@ -1,8 +1,8 @@
 define([
   'react',
+  'react-addons-test-utils',
   'jsx/account_course_user_search/UsersListRow'
-], (React, UsersListRow) => {
-  const TestUtils = React.addons.TestUtils;
+], (React, TestUtils, UsersListRow) => {
 
   module('Account Course User Search UsersListRow View');
 
@@ -67,7 +67,7 @@ define([
       />
     );
 
-    const actions = TestUtils.scryRenderedDOMComponentsWithClass(component.refs.linksContainer, 'user_actions_js_test');
+    const actions = TestUtils.scryRenderedDOMComponentsWithClass(component, 'user_actions_js_test');
     equal(actions.length, 3);
   });
 
@@ -89,7 +89,7 @@ define([
       />
     );
 
-    const actions = TestUtils.scryRenderedDOMComponentsWithClass(component.refs.linksContainer, 'user_actions_js_test');
+    const actions = TestUtils.scryRenderedDOMComponentsWithClass(component, 'user_actions_js_test');
     equal(actions.length, 0);
 
     permissions = originalPermissions;

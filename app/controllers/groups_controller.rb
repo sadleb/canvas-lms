@@ -135,7 +135,7 @@ require 'atom'
 #
 class GroupsController < ApplicationController
   before_filter :get_context
-  before_filter :require_user, :only => %w[index accept_invitation]
+  before_filter :require_user, :only => %w[index accept_invitation activity_stream activity_stream_summary]
 
   include Api::V1::Attachment
   include Api::V1::Group
@@ -190,6 +190,10 @@ class GroupsController < ApplicationController
   # @argument context_type [String, "Account"|"Course"]
   #  Only include groups that are in this type of context.
   #
+  # @argument include[] [String, "tabs"]
+  #   - "tabs": Include the list of tabs configured for each group.  See the
+  #     {api:TabsController#index List available tabs API} for more information.
+  #
   # @example_request
   #     curl https://<canvas>/api/v1/users/self/groups?context_type=Account \
   #          -H 'Authorization: Bearer <token>'
@@ -210,14 +214,14 @@ class GroupsController < ApplicationController
 
         # Split the groups out into those in concluded courses and those not in concluded courses
         @current_groups, @previous_groups = groups.partition do |group|
-          group.context_type != 'Course' || !group.context.concluded?
+          group.context_type != 'Course' || !group.context.concluded?('StudentEnrollment')
         end
       end
 
       format.json do
         @groups = ShardedBookmarkedCollection.build(Group::Bookmarker, groups_scope) do |scope|
           scope = scope.where(:context_type => params[:context_type]) if params[:context_type]
-          scope.preload(:group_category)
+          scope.preload(:group_category, :context)
         end
         @groups = Api.paginate(@groups, self, api_v1_current_user_groups_url)
         render :json => (@groups.map { |g| group_json(g, @current_user, session,includes) })
@@ -231,6 +235,10 @@ class GroupsController < ApplicationController
   #
   # @argument only_own_groups [Boolean]
   #  Will only include groups that the user belongs to if this is set
+  #
+  # @argument include[] [String, "tabs"]
+  #   - "tabs": Include the list of tabs configured for each group.  See the
+  #     {api:TabsController#index List available tabs API} for more information.
   #
   # @example_request
   #     curl https://<canvas>/api/v1/courses/1/groups \
@@ -266,21 +274,23 @@ class GroupsController < ApplicationController
         @user_groups = @current_user.group_memberships_for(@context) if @current_user
 
         if @context.grants_right?(@current_user, session, :manage_groups)
-          if @domain_root_account.enable_manage_groups2?
-            categories_json = @categories.map{ |cat| group_category_json(cat, @current_user, session, include: ["progress_url", "unassigned_users_count", "groups_count"]) }
-            uncategorized = @context.groups.active.uncategorized.to_a
-            if uncategorized.present?
-              json = group_category_json(GroupCategory.uncategorized, @current_user, session)
-              json["groups"] = uncategorized.map{ |group| group_json(group, @current_user, session) }
-              categories_json << json
-            end
-
-            js_env group_categories: categories_json,
-                   group_user_type: @group_user_type,
-                   allow_self_signup: @allow_self_signup
-            # since there are generally lots of users in an account, always do large roster view
-            @js_env[:IS_LARGE_ROSTER] ||= @context.is_a?(Account)
+          categories_json = @categories.map{ |cat| group_category_json(cat, @current_user, session, include: ["progress_url", "unassigned_users_count", "groups_count"]) }
+          uncategorized = @context.groups.active.uncategorized.to_a
+          if uncategorized.present?
+            json = group_category_json(GroupCategory.uncategorized, @current_user, session)
+            json["groups"] = uncategorized.map{ |group| group_json(group, @current_user, session) }
+            categories_json << json
           end
+
+          js_env group_categories: categories_json,
+                 group_user_type: @group_user_type,
+                 allow_self_signup: @allow_self_signup
+          if @context.is_a?(Course)
+            # get number of sections with students in them so we can enforce a min group size for random assignment on sections
+            js_env(:student_section_count => @context.enrollments.active_or_pending.where(:type => "StudentEnrollment").distinct.count(:course_section_id))
+          end
+          # since there are generally lots of users in an account, always do large roster view
+          @js_env[:IS_LARGE_ROSTER] ||= @context.is_a?(Account)
           render :context_manage_groups
         else
           @groups = @user_groups = @groups & (@user_groups || [])
@@ -315,9 +325,11 @@ class GroupsController < ApplicationController
   #     curl https://<canvas>/api/v1/groups/<group_id> \
   #          -H 'Authorization: Bearer <token>'
   #
-  # @argument include[] [String, "permissions"]
+  # @argument include[] [String, "permissions", "tabs"]
   #   - "permissions": Include permissions the current user has
   #     for the group.
+  #   - "tabs": Include the list of tabs configured for each group.  See the
+  #     {api:TabsController#index List available tabs API} for more information.
   #
   # @returns Group
   def show
@@ -336,8 +348,8 @@ class GroupsController < ApplicationController
           redirect_to named_context_url(@group.context, :context_url)
           return
         end
-        @current_conferences = @group.web_conferences.select{|c| c.active? && c.users.include?(@current_user) } rescue []
-        @scheduled_conferences = @context.web_conferences.select{|c| c.scheduled? && c.users.include?(@current_user)} rescue []
+        @current_conferences = @group.web_conferences.active.select{|c| c.active? && c.users.include?(@current_user) } rescue []
+        @scheduled_conferences = @context.web_conferences.active.select{|c| c.scheduled? && c.users.include?(@current_user)} rescue []
         @stream_items = @current_user.try(:cached_recent_stream_items, { :contexts => @context }) || []
         if params[:join] && @group.grants_right?(@current_user, :join)
           if @group.full?
@@ -673,20 +685,6 @@ class GroupsController < ApplicationController
 
     users = Api.paginate(users, self, api_v1_group_users_url)
     render :json => users_json(users, @current_user, session, Array(params[:include]), @context, nil, Array(params[:exclude]))
-  end
-
-  def edit
-    account = @context.root_account
-    raise ActiveRecord::RecordNotFound unless account.canvas_network_enabled?
-
-    @group = (@context ? @context.groups : Group).find(params[:id])
-    @context = @group
-
-    folder   = @group.folders.active.first
-    folder ||= @group.folders.active.create! :name => 'Group Pictures'
-    js_env :GROUP_ID => @group.id, :FOLDER_ID => folder.id
-
-    authorized_action(@group, @current_user, :update)
   end
 
   def public_feed

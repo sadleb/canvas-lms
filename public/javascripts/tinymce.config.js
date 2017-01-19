@@ -49,7 +49,7 @@ define([], function(){
       theme: "modern",
       skin: "light",
       skin_url: "/vendor/tinymce_themes/light",
-      plugins: "autolink,media,paste,table,textcolor,link,directionality",
+      plugins: "autolink,media,paste,table,textcolor,link,directionality,lists",
       paste_data_images: true, /* Needed for IMG hack to get retained data field working */
       external_plugins: {
         "instructure_image": "/javascripts/tinymce_plugins/instructure_image/plugin.js",
@@ -65,7 +65,7 @@ define([], function(){
         "bz_surveys":         "/javascripts/tinymce_plugins/bz_surveys/plugin.js"
       },
       language_load: false,
-      relative_urls: false,
+      convert_urls: false,
       // we add the menubar for a11y purposes but then
       // hide it with js for non screenreader users
       menubar: true,

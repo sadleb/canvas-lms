@@ -22,16 +22,15 @@ module DashboardHelper
   end
 
   def show_welcome_message?
-    @current_user.present? &&
-      @current_user.cached_current_enrollments(:include_enrollment_uuid => session[:enrollment_uuid], :preload_dates => true).select(&:active?).empty?
+    @current_user.present? && !@current_user.has_active_enrollment?
   end
 
   def welcome_message
-    if @current_user.cached_current_enrollments(:include_future => true).present?
+    if @current_user.has_future_enrollment?
       t('#users.welcome.unpublished_courses_message', <<-BODY)
         You've enrolled in one or more courses that have not started yet. Once
         those courses are available, you will see information about them here
-        and in the top navigation. In the meantime, feel free to sign up for
+        and in the navigation on the left side. In the meantime, feel free to sign up for
         more courses or set up your profile.
       BODY
     else

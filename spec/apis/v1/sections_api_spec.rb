@@ -20,7 +20,7 @@ require File.expand_path(File.dirname(__FILE__) + '/../api_spec_helper')
 
 describe SectionsController, type: :request do
   describe '#index' do
-    USER_API_FIELDS = %w(id name sortable_name short_name)
+    let(:user_api_fields) { %w(id name sortable_name short_name) }
 
     before :once do
       course_with_teacher(:active_all => true, :user => user_with_pseudonym(:name => 'UWP'))
@@ -45,8 +45,8 @@ describe SectionsController, type: :request do
       json = api_call(:get, "/api/v1/courses/#{@course2.id}/sections.json",
                       { :controller => 'sections', :action => 'index', :course_id => @course2.to_param, :format => 'json' }, { :include => ['students'] })
       expect(json.size).to eq 2
-      expect(json.find { |s| s['name'] == section1.name }['students']).to eq api_json_response([user1], :only => USER_API_FIELDS)
-      expect(json.find { |s| s['name'] == section2.name }['students']).to eq api_json_response([user2], :only => USER_API_FIELDS)
+      expect(json.find { |s| s['name'] == section1.name }['students']).to eq api_json_response([user1], :only => user_api_fields)
+      expect(json.find { |s| s['name'] == section2.name }['students']).to eq api_json_response([user2], :only => user_api_fields)
     end
 
     it "should return the list of enrollments if 'students' and 'enrollments' flags are given" do
@@ -93,6 +93,15 @@ describe SectionsController, type: :request do
       section2.save!
       json = api_call(:get, "/api/v1/courses/#{@course2.id}/sections.json",
                       { :controller => 'sections', :action => 'index', :course_id => @course2.to_param, :format => 'json' }, { :include => ['students'] })
+      expect(json.size).to eq 1
+    end
+
+    it "should respect ?per_page=n" do
+      @course2.course_sections.create!(:name => 'Section B')
+      @course2.course_sections.create!(:name => 'Section C')
+      json = api_call(:get, "/api/v1/courses/#{@course2.id}/sections.json",
+                      { :controller => 'sections', :action => 'index', :course_id => @course2.to_param, :format => 'json' },
+                      { :per_page => 1 })
       expect(json.size).to eq 1
     end
 
@@ -149,6 +158,15 @@ describe SectionsController, type: :request do
           'sis_course_id' => nil,
           'sis_section_id' => nil
         })
+      end
+
+      it "should return the count of active and invited students if 'total_students' flag is given" do
+        @course.offer!
+        user2 = User.create!(:name => 'Bernard')
+        @course.enroll_user(user2, 'StudentEnrollment', :section => @section).accept!
+
+        json = api_call(:get, "#{@path_prefix}/#{@section.id}", @path_params.merge({ :id => @section.to_param, :include => ['total_students'] }))
+        expect(json['total_students']).to eq 1
       end
 
       it "should be accessible from the course context via sis id" do

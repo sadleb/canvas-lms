@@ -259,7 +259,7 @@ describe WikiPage do
 
     context 'on a group' do
       before do
-        group_with_user_logged_in
+        group_with_user
       end
 
       it 'should set the front page body' do
@@ -465,9 +465,38 @@ describe WikiPage do
     end
   end
 
+  describe "destroy" do
+    before (:once) { course }
+
+    it "should destroy its assignment if enabled" do
+      @course.enable_feature!(:conditional_release)
+      wiki_page_assignment_model course: @course
+      @page.destroy
+      expect(@page.reload).to be_deleted
+      expect(@assignment.reload).to be_deleted
+    end
+
+    it "should not destroy its assignment" do
+      wiki_page_assignment_model course: @course
+      @page.destroy
+      expect(@page.reload).to be_deleted
+      expect(@assignment.reload).not_to be_deleted
+    end
+
+    it "should destroy its content tags" do
+      @page = @course.wiki.wiki_pages.create! title: 'destroy me'
+      @module = @course.context_modules.create!(:name => "module")
+      tag = @module.add_item(type: 'WikiPage', title: 'kill meeee', id: @page.id)
+      @page.destroy
+      expect(@page.reload).to be_deleted
+      expect(tag.reload).to be_deleted
+    end
+  end
+
   describe "restore" do
+    before (:once) { course }
+
     it "should restore to unpublished state" do
-      course
       @page = @course.wiki.wiki_pages.create! title: 'dot dot dot'
       @page.update_attribute(:workflow_state, 'deleted')
       @page.restore
@@ -475,7 +504,6 @@ describe WikiPage do
     end
 
     it "should restore a linked assignment if enabled" do
-      course
       @course.enable_feature!(:conditional_release)
       wiki_page_assignment_model course: @course
       @page.workflow_state = 'deleted'
@@ -487,16 +515,26 @@ describe WikiPage do
     end
 
     it "should not restore a linked assignment" do
-      wiki_page_assignment_model
+      wiki_page_assignment_model course: @course
       @page.workflow_state = 'deleted'
       expect { @page.save! }.not_to change { @assignment.workflow_state }
       expect { @page.restore }.not_to change { @assignment.workflow_state }
+    end
+
+    it "should not restore its content tags" do
+      @page = @course.wiki.wiki_pages.create! title: 'dot dot dot'
+      @module = @course.context_modules.create!(:name => "module")
+      tag = @module.add_item(type: 'WikiPage', title: 'dash dash dash', id: @page.id)
+      @page.update_attribute(:workflow_state, 'deleted')
+      @page.restore
+      expect(@page.reload).to be_unpublished
+      expect(tag.reload).to be_deleted
     end
   end
 
   describe "context_module_action" do
     it "should process all content tags" do
-      course_with_student_logged_in active_all: true
+      course_with_student active_all: true
       page = @course.wiki.wiki_pages.create! title: 'teh page'
       mod1 = @course.context_modules.create name: 'module1'
       tag1 = mod1.add_item type: 'wiki_page', id: page.id
@@ -514,7 +552,7 @@ describe WikiPage do
 
   describe "locked_for?" do
     it "should lock by preceding item and sequential progress" do
-      course_with_student_logged_in active_all: true
+      course_with_student active_all: true
       pageB = @course.wiki.wiki_pages.create! title: 'B'
       pageC = @course.wiki.wiki_pages.create! title: 'C'
       mod = @course.context_modules.create name: 'teh module'
@@ -527,7 +565,7 @@ describe WikiPage do
     end
 
     it "includes a future unlock date" do
-      course_with_student_logged_in active_all: true
+      course_with_student active_all: true
       page = @course.wiki.wiki_pages.create! title: 'page'
       mod = @course.context_modules.create name: 'teh module', unlock_at: 1.week.from_now
       mod.add_item type: 'wiki_page', id: page.id
@@ -537,7 +575,7 @@ describe WikiPage do
     end
 
     it "doesn't reference an expired unlock-at date" do
-      course_with_student_logged_in active_all: true
+      course_with_student active_all: true
       page = @course.wiki.wiki_pages.create! title: 'page'
       mod = @course.context_modules.create name: 'teh module', unlock_at: 1.week.ago
       mod.add_item type: 'wiki_page', id: page.id

@@ -49,7 +49,7 @@ define [
       # @next : Object
       @msfInstance = new $.fn.moduleSequenceFooter.MSFClass options
 
-      if ENV?.ModuleSequenceFooter_data
+      if ENV?.ModuleSequenceFooter_data # This is an optimization to avoid fetching when unecessary
         @msfInstance.success(ENV?.ModuleSequenceFooter_data)
         if @msfInstance.hide
           @hide()
@@ -66,6 +66,7 @@ define [
           new_styles: window.ENV.use_new_styles
         )
         @show()
+        $(window).triggerHandler('resize');
       else
         @msfInstance.fetch().done =>
           if @msfInstance.hide
@@ -83,6 +84,7 @@ define [
           )
           @msfAnimation(options.animation) if options?.animation != undefined
           @show()
+          $(window).triggerHandler('resize');
 
       this
 

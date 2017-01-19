@@ -333,12 +333,20 @@ class SubmissionsController < ApplicationController
   end
   private :verify_api_call_has_attachment
 
+  def allowed_api_submission_type?(submission_type)
+    valid_for_api = API_SUBMISSION_TYPES.key?(submission_type)
+    allowed_for_assignment = @assignment.submission_types_array.include?(submission_type)
+    basic_lti_launch = (@assignment.submission_types.include?('online') && submission_type == 'basic_lti_launch')
+    valid_for_api && (allowed_for_assignment || basic_lti_launch)
+  end
+  private :allowed_api_submission_type?
+
   def process_api_submission_params
     # Verify submission_type is valid, and allowed by the assignment.
     # This should probably happen for non-api submissions as well, but
     # that'll take some further investigation/testing.
     submission_type = params[:submission][:submission_type]
-    unless API_SUBMISSION_TYPES.key?(submission_type) && @assignment.submission_types_array.include?(submission_type)
+    unless allowed_api_submission_type?(submission_type)
       render(:json => { :message => "Invalid submission[submission_type] given" }, :status => 400)
       return false
     end
@@ -454,16 +462,42 @@ class SubmissionsController < ApplicationController
   protected :submit_google_doc
 
   def turnitin_report
+    plagiarism_report('turnitin')
+  end
+
+  def resubmit_to_turnitin
+    resubmit_to_plagiarism('turnitin')
+  end
+
+  def vericite_report
+    plagiarism_report('vericite')
+  end
+
+  def resubmit_to_vericite
+    resubmit_to_plagiarism('vericite')
+  end
+
+  def plagiarism_report(type)
     return render(:nothing => true, :status => 400) unless params_are_integers?(:assignment_id, :submission_id)
 
     @assignment = @context.assignments.active.find(params[:assignment_id])
     @submission = @assignment.submissions.where(user_id: params[:submission_id]).first
     @asset_string = params[:asset_string]
     if authorized_action(@submission, @current_user, :read)
-      if (report_url = @submission.turnitin_data[@asset_string] && @submission.turnitin_data[@asset_string][:report_url])
+      plag_data = @submission.turnitin_data
+      if type == 'vericite'
+        plag_data = @submission.vericite_data
+      end
+      if (report_url = plag_data[@asset_string] && plag_data[@asset_string][:report_url])
         url = polymorphic_url([:retrieve, @context, :external_tools], url:report_url, display:'borderless')
       else
-        url = @submission.turnitin_report_url(@asset_string, @current_user) rescue nil
+        if type == 'vericite'
+          # VeriCite URL
+          url = @submission.vericite_report_url(@asset_string, @current_user, session) rescue nil
+        else
+          # Turnitin URL
+          url = @submission.turnitin_report_url(@asset_string, @current_user) rescue nil
+        end
       end
       if url
         redirect_to url
@@ -473,23 +507,34 @@ class SubmissionsController < ApplicationController
       end
     end
   end
+  private :plagiarism_report
 
-  def resubmit_to_turnitin
+  def resubmit_to_plagiarism(type)
     return render(:nothing => true, :status => 400) unless params_are_integers?(:assignment_id, :submission_id)
 
     if authorized_action(@context, @current_user, [:manage_grades, :view_all_grades])
       @assignment = @context.assignments.active.find(params[:assignment_id])
       @submission = @assignment.submissions.where(user_id: params[:submission_id]).first
-      @submission.resubmit_to_turnitin
+
+      if type == 'vericite'
+        # VeriCite
+        @submission.resubmit_to_vericite
+        message = t("Successfully resubmitted to VeriCite.")
+      else
+        # turnitin
+        @submission.resubmit_to_turnitin
+        message = t("Successfully resubmitted to turnitin.")
+      end
       respond_to do |format|
         format.html {
-          flash[:notice] = t('resubmitted_to_turnitin', "Successfully resubmitted to turnitin.")
+          flash[:notice] = message
           redirect_to named_context_url(@context, :context_assignment_submission_url, @assignment.id, @submission.user_id)
         }
         format.json { render :nothing => true, :status => :no_content }
       end
     end
   end
+  private :resubmit_to_plagiarism
 
   def update
     @assignment = @context.assignments.active.find(params[:assignment_id])
@@ -506,9 +551,11 @@ class SubmissionsController < ApplicationController
     if authorized_action(@submission, @current_user, :comment)
       params[:submission][:commenter] = @current_user
       admin_in_context = !@context_enrollment || @context_enrollment.admin?
+
       if params[:attachments]
         attachments = []
-        params[:attachments].each do |idx, attachment|
+        params[:attachments].keys.each do |idx|
+          attachment = strong_params[:attachments][idx].permit(Attachment.permitted_attributes)
           attachment[:user] = @current_user
           attachments << @assignment.attachments.create(attachment)
         end
@@ -526,7 +573,8 @@ class SubmissionsController < ApplicationController
           :group_comment => params[:submission][:group_comment],
           :hidden => @assignment.muted? && admin_in_context,
           :provisional => provisional,
-          :final => params[:submission][:final]
+          :final => params[:submission][:final],
+          :draft_comment => Canvas::Plugin.value_to_boolean(params[:submission][:draft_comment])
         }
       end
       begin

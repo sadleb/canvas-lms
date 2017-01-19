@@ -1,12 +1,12 @@
 define [
   'react'
+  'react-dom'
+  'react-addons-test-utils'
   'underscore'
   'jsx/dashboard_card/DashboardCard'
   'jsx/dashboard_card/CourseActivitySummaryStore',
   'helpers/assertions'
-], (React, _, DashboardCard, CourseActivitySummaryStore, assertions) ->
-
-  TestUtils = React.addons.TestUtils
+], (React, ReactDOM, TestUtils, _, DashboardCard, CourseActivitySummaryStore, assertions) ->
 
   module 'DashboardCard',
     setup: ->
@@ -24,13 +24,15 @@ define [
         assetString: 'foo',
         href: '/courses/1',
         courseCode: '101',
-        id: 1
+        id: 1,
+        image: null,
+        imagesEnabled: false
       }
       @stub(CourseActivitySummaryStore, 'getStateForCourse', -> {})
 
     teardown: ->
       localStorage.clear()
-      React.unmountComponentAtNode(@component.getDOMNode().parentNode)
+      ReactDOM.unmountComponentAtNode(@component.getDOMNode().parentNode)
       @wrapper.remove() if @wrapper
 
   test 'render', ->
@@ -55,13 +57,12 @@ define [
 
     @wrapper = $('<div>').appendTo('body')[0]
 
-    @component = React.render(DashCard, @wrapper)
+    @component = ReactDOM.render(DashCard, @wrapper)
 
-    $html = $(React.findDOMNode(@component))
+    $html = $(ReactDOM.findDOMNode(@component))
 
     done = assert.async()
     assertions.isAccessible $html, done
-
 
   test 'unreadCount', ->
     DashCard = React.createElement(DashboardCard, @props)
@@ -70,3 +71,19 @@ define [
       'should not blow up without a stream'
     equal @component.unreadCount('icon-discussion', @stream), 2,
       'should pass down unread count if stream item corresponding to icon has unread count'
+
+  test 'does not have image attribute when a url is not provided', ->
+    @props.imagesEnabled = true
+    DashCard = React.createElement(DashboardCard, @props)
+    @component = TestUtils.renderIntoDocument(DashCard)
+    ok TestUtils.scryRenderedDOMComponentsWithClass(@component, 'ic-DashboardCard__header_image').length == 0,
+      'image attribute should not be present'
+
+  test 'has image attribute when url is provided', ->
+    @props.imagesEnabled = true
+    @props.image = 'http://coolUrl'
+    DashCard = React.createElement(DashboardCard, @props)
+    @component = TestUtils.renderIntoDocument(DashCard)
+    $html = TestUtils.findRenderedDOMComponentWithClass(@component, 'ic-DashboardCard__header_image')
+    ok $html, 'image showing'
+

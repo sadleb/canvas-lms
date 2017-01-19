@@ -54,7 +54,8 @@ module Api::V1::Submission
     end
 
     if includes.include?("submission_comments")
-      hash['submission_comments'] = submission_comments_json(submission.comments_for(@current_user), current_user)
+      published_comments = submission.comments_for(@current_user).published
+      hash['submission_comments'] = submission_comments_json(published_comments, current_user)
     end
 
     if includes.include?("rubric_assessment") && submission.rubric_assessment && submission.user_can_read_grade?(current_user)
@@ -111,6 +112,7 @@ module Api::V1::Submission
       other_fields -= params[:exclude_response_fields]
     end
 
+    attempt.assignment = assignment
     hash = api_json(attempt, user, session, :only => json_fields, :methods => json_methods)
     if hash['body'].present?
       hash['body'] = api_user_content(hash['body'], context, user)
@@ -135,6 +137,12 @@ module Api::V1::Submission
       hash['turnitin_data'] = turnitin_hash
     end
 
+    if attempt.vericite_data(false).present? && attempt.can_view_plagiarism_report('vericite', @current_user, session)
+      vericite_hash = attempt.vericite_data(false).dup
+      vericite_hash.delete(:last_processed_attempt)
+      hash['vericite_data'] = vericite_hash
+    end
+
     if other_fields.include?('attachments')
       attachments = attempt.versioned_attachments.dup
       attachments << attempt.attachment if attempt.attachment && attempt.attachment.context_type == 'Submission' && attempt.attachment.context_id == attempt.id
@@ -142,7 +150,8 @@ module Api::V1::Submission
         attachment.skip_submission_attachment_lock_checks = true
         atjson = attachment_json(attachment, user, {},
                                  submission_attachment: true,
-                                 include: ['preview_url'])
+                                 include: ['preview_url'],
+                                 crocodoc_ids: attempt.crocodoc_whitelist)
         attachment.skip_submission_attachment_lock_checks = false
         atjson
       end.compact unless attachments.blank?
@@ -180,6 +189,7 @@ module Api::V1::Submission
     hash = submission_attempt_json(attempt.submission, assignment, user, session, context)
     hash.each_key{|k| hash[k] = attempt[k] if attempt[k]}
     hash[:submission_data] = attempt[:submission_data]
+    hash[:submitted_at] = attempt[:finished_at]
     hash[:body] = nil
 
     # since it is graded automatically the graded_at date should be the last time the
@@ -201,7 +211,7 @@ module Api::V1::Submission
   # A timestamp that marks the latest update to the assignment object which will
   # be used to determine whether the attachment will be re-created.
   #
-  # Note that this timestamp will be ignored if the attachment is 1 hour old.
+  # Note that this timestamp will be ignored if the attachment is +submission_zip_ttl_minutes+ old.
   #
   # @return [Attachment] The attachment that contains the archive.
   def submission_zip(assignment, updated_at = nil)
@@ -214,13 +224,14 @@ module Api::V1::Submission
     attachment = attachments.pop
     attachments.each { |a| a.destroy_permanently! }
 
+    anonymous = assignment.context.feature_enabled?(:anonymous_grading)
+
     # Remove the earlier attachment and re-create it if it's "stale"
     if attachment
-      created_at = attachment.created_at
-      updated_at ||= assignment.submissions.map { |s| s.submitted_at }.compact.max
-
-      ttl = Setting.get('submission_zip_ttl_minutes', '60').to_i.minutes.ago
-      if created_at < ttl || (updated_at && created_at < updated_at)
+      stale = (attachment.locked != anonymous)
+      stale ||= (attachment.created_at < Setting.get('submission_zip_ttl_minutes', '60').to_i.minutes.ago)
+      stale ||= (attachment.created_at < (updated_at || assignment.submissions.maximum(:submitted_at)))
+      if stale
         attachment.destroy_permanently!
         attachment = nil
       end
@@ -231,6 +242,7 @@ module Api::V1::Submission
       attachment.workflow_state = 'to_be_zipped'
       attachment.file_state = '0'
       attachment.user = @current_user
+      attachment.locked = anonymous
       attachment.save!
 
       ContentZipper.send_later_enqueue_args(:process_attachment, {

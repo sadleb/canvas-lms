@@ -11,6 +11,8 @@ describe "interaction with differentiated assignments" do
       course_with_student_logged_in
       da_setup
       create_da_assignment
+      @teacher = User.create!
+      @course.enroll_teacher(@teacher)
     end
 
     context "Assignment Index" do
@@ -25,7 +27,7 @@ describe "interaction with differentiated assignments" do
         expect(f("#assignment_group_upcoming")).to include_text(@da_assignment.title)
       end
       it "should show assignments with a graded submission" do
-        @da_assignment.grade_student(@user, {:grade => 10})
+        @da_assignment.grade_student(@user, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments"
         expect(f("#assignment_group_undated")).to include_text(@da_assignment.title)
       end
@@ -44,7 +46,7 @@ describe "interaction with differentiated assignments" do
         expect(driver.current_url).to match %r{/courses/\d+/assignments/#{@da_assignment.id}}
       end
       it "should show the assignment page with a graded submission" do
-        @da_assignment.grade_student(@user, {:grade => 10})
+        @da_assignment.grade_student(@user, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments/#{@da_assignment.id}"
         expect(driver.current_url).to match %r{/courses/\d+/assignments/#{@da_assignment.id}}
       end
@@ -68,7 +70,7 @@ describe "interaction with differentiated assignments" do
           expect(f("#assignments")).to include_text(@da_assignment.title)
         end
         it "should show assignments with a graded submission" do
-          @da_assignment.grade_student(@student, {:grade => 10})
+          @da_assignment.grade_student(@student, grade: 10, grader: @teacher)
           get "/courses/#{@course.id}/grades"
           expect(f("#assignments")).to include_text(@da_assignment.title)
         end
@@ -85,6 +87,8 @@ describe "interaction with differentiated assignments" do
       observer_setup
       da_setup
       create_da_assignment
+      @teacher = User.create!
+      @course.enroll_teacher(@teacher)
     end
 
     context "Assignment Index" do
@@ -99,7 +103,7 @@ describe "interaction with differentiated assignments" do
         expect(f("#assignment_group_upcoming")).to include_text(@da_assignment.title)
       end
       it "should show assignments with a graded submission" do
-        @da_assignment.grade_student(@user, {:grade => 10})
+        @da_assignment.grade_student(@user, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments"
         expect(f("#assignment_group_undated")).to include_text(@da_assignment.title)
       end
@@ -118,7 +122,7 @@ describe "interaction with differentiated assignments" do
         expect(driver.current_url).to match %r{/courses/\d+/assignments/#{@da_assignment.id}}
       end
       it "should show the assignment page with a graded submission" do
-        @da_assignment.grade_student(@student, {:grade => 10})
+        @da_assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/assignments/#{@da_assignment.id}"
         expect(driver.current_url).to match %r{/courses/\d+/assignments/#{@da_assignment.id}}
       end
@@ -142,7 +146,7 @@ describe "interaction with differentiated assignments" do
         expect(f("#assignments")).to include_text(@da_assignment.title)
       end
       it "should show assignments with a graded submission" do
-        @da_assignment.grade_student(@student, {:grade => 10})
+        @da_assignment.grade_student(@student, grade: 10, grader: @teacher)
         get "/courses/#{@course.id}/grades"
         expect(f("#assignments")).to include_text(@da_assignment.title)
       end
@@ -161,20 +165,10 @@ describe "interaction with differentiated assignments" do
       create_da_assignment
     end
     it "should hide students from speedgrader if they don't have Differentiated assignment visibility or a graded submission" do
-      # this is all setup
-      @s1, @s2, @s3, @s4, @s5 = ["Not Displayed", "bob", "steve", "mary", "jeanie"].map do |name|
-        course_with_student(:course => @course)
-        @student.name = name
-        @student.tap(&:save)
-      end
-      [@s1, @s2, @s3].each do |student|
-        @course.enroll_user(student, 'StudentEnrollment', :enrollment_state => 'active', :section => @default_section)
-      end
-      [@s4, @s5].each do |student|
-        @course.enroll_user(student, 'StudentEnrollment', :enrollment_state => 'active', :section => @section1)
-      end
+      @s1, @s2, @s3 = create_users_in_course(@course, 3, return_type: :record, section_id: @default_section.id)
+      @s4, @s5 = create_users_in_course(@course, 2, return_type: :record, section_id: @section1.id)
       create_section_override_for_assignment(@da_assignment, course_section: @section1)
-      @da_assignment.grade_student(@s3, {:grade => 10})
+      @da_assignment.grade_student(@s3, grade: 10, grader: @teacher)
 
       # evaluate for our data
       get "/courses/#{@course.id}/gradebook/speed_grader?assignment_id=#{@da_assignment.id}"

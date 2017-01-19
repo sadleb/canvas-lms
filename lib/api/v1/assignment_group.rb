@@ -50,10 +50,16 @@ module Api::V1::AssignmentGroup
         Assignment.preload_context_module_tags(assignments) # running this again is fine
       end
 
+      unless opts[:exclude_response_fields].include?('in_closed_grading_period')
+        closed_grading_period_hash = opts[:closed_grading_period_hash] ||
+          EffectiveDueDates.for_course(group.context, assignments).to_hash([:in_closed_grading_period])
+      end
+
       hash['assignments'] = assignments.map { |a|
         overrides = opts[:overrides].select{|override| override.assignment_id == a.id } unless opts[:overrides].nil?
         a.context = group.context
-        assignment_json(a, user, session,
+        exclude_fields = opts[:exclude_response_fields] | ['in_closed_grading_period'] #array union
+        assignment = assignment_json(a, user, session,
           include_discussion_topic: includes.include?('discussion_topic'),
           include_all_dates: includes.include?('all_dates'),
           include_module_ids: includes.include?('module_ids'),
@@ -61,28 +67,41 @@ module Api::V1::AssignmentGroup
           preloaded_user_content_attachments: user_content_attachments,
           include_visibility: includes.include?('assignment_visibility'),
           assignment_visibilities: opts[:assignment_visibilities].try(:[], a.id),
-          exclude_response_fields: opts[:exclude_response_fields],
+          exclude_response_fields: exclude_fields,
           overrides: overrides,
+          include_overrides: opts[:include_overrides],
           needs_grading_course_proxy: needs_grading_course_proxy,
           submission: includes.include?('submission') ? opts[:submissions][a.id] : nil
         )
+
+        unless opts[:exclude_response_fields].include?('in_closed_grading_period')
+          assignment_closed_grading_period_hash = closed_grading_period_hash[assignment[:id]] || {}
+          assignment['in_closed_grading_period'] =
+            assignment_closed_grading_period_hash.any? do |_, student_grading_period_status|
+              student_grading_period_status[:in_closed_grading_period]
+            end
+        end
+        assignment
       }
+
+      unless opts[:exclude_response_fields].include?('in_closed_grading_period')
+        hash['any_assignment_in_closed_grading_period'] =
+          hash["assignments"].any?{ |assn| assn["in_closed_grading_period"] }
+      end
     end
 
     hash
   end
 
   def update_assignment_group(assignment_group, params)
-    return nil unless params.is_a?(Hash)
+    return nil unless params.is_a?(ActionController::Parameters)
 
-    update_params = params.slice(*API_ALLOWED_ASSIGNMENT_GROUP_INPUT_FIELDS)
+    update_params = params.permit(*API_ALLOWED_ASSIGNMENT_GROUP_INPUT_FIELDS)
 
-    if rules = update_params.delete('rules')
+    if rules = params.delete('rules')
       assignment_group.rules_hash = rules
     end
 
     assignment_group.attributes = update_params
-
-    assignment_group.save
   end
 end

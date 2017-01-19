@@ -25,6 +25,7 @@ class CourseSection < ActiveRecord::Base
   belongs_to :course
   belongs_to :nonxlist_course, :class_name => 'Course'
   belongs_to :root_account, :class_name => 'Account'
+  belongs_to :enrollment_term
   has_many :enrollments, -> { preload(:user).where("enrollments.workflow_state<>'deleted'") }, dependent: :destroy
   has_many :all_enrollments, :class_name => 'Enrollment'
   has_many :students, :through => :student_enrollments, :source => :user
@@ -51,6 +52,7 @@ class CourseSection < ActiveRecord::Base
   before_save :maybe_touch_all_enrollments
   after_save :update_account_associations_if_changed
   after_save :delete_enrollments_later_if_deleted
+  after_save :update_enrollment_states_if_necessary
 
   include StickySisFields
   are_sis_sticky :course_id, :name, :start_at, :end_at, :restrict_enrollments_to_section_dates
@@ -73,17 +75,35 @@ class CourseSection < ActiveRecord::Base
     User.observing_students_in_course(participating_students.map(&:id), course.id)
   end
 
+  def participating_observers_by_date
+    User.observing_students_in_course(participating_students_by_date.map(&:id), course.id)
+  end
+
   def participating_students
     course.participating_students.where(:enrollments => { :course_section_id => self })
+  end
+
+  def participating_students_by_date
+    course.participating_students_by_date.where(:enrollments => { :course_section_id => self })
   end
 
   def participating_admins
     course.participating_admins.where("enrollments.course_section_id = ? OR NOT COALESCE(enrollments.limit_privileges_to_course_section, ?)", self, false)
   end
 
-  def participants(include_observers=false)
-    ps = participating_students + participating_admins
-    ps += participating_observers if include_observers
+  def participating_admins_by_date
+    course.participating_admins.where("enrollments.course_section_id = ? OR NOT COALESCE(enrollments.limit_privileges_to_course_section, ?)", self, false)
+  end
+
+  def participants(opts={})
+    ps = nil
+    if opts[:by_date]
+      ps = participating_students_by_date + participating_admins_by_date
+      ps += participating_observers_by_date if opts[:include_observers]
+    else
+      ps = participating_students + participating_admins
+      ps += participating_observers if opts[:include_observers]
+    end
     ps
   end
 
@@ -213,6 +233,7 @@ class CourseSection < ActiveRecord::Base
       self.save!
       self.all_enrollments.update_all :course_id => course
     end
+    EnrollmentState.send_later_if_production(:invalidate_states_for_course_or_section, self)
     User.send_later_if_production(:update_account_associations, user_ids) if old_course.account_id != course.account_id && !User.skip_updating_account_associations?
     if old_course.id != self.course_id && old_course.id != self.nonxlist_course_id
       old_course.send_later_if_production(:update_account_associations) unless Course.skip_updating_account_associations?
@@ -248,7 +269,7 @@ class CourseSection < ActiveRecord::Base
   end
 
   def deletable?
-    self.enrollments.not_fake.count == 0
+    !self.enrollments.where.not(:workflow_state => 'rejected').not_fake.exists?
   end
 
   def enroll_user(user, type, state='invited')
@@ -274,5 +295,11 @@ class CourseSection < ActiveRecord::Base
 
   def common_to_users?(users)
     users.all?{ |user| self.student_enrollments.active.for_user(user).count > 0 }
+  end
+
+  def update_enrollment_states_if_necessary
+    if self.restrict_enrollments_to_section_dates_changed? || (self.restrict_enrollments_to_section_dates? && (changes.keys & %w{start_at end_at}).any?)
+      EnrollmentState.send_later_if_production(:invalidate_states_for_course_or_section, self)
+    end
   end
 end

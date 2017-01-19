@@ -1,6 +1,6 @@
 /** @jsx React.DOM */
 define(function(require) {
-  var React = require('react');
+  var React = require('old_version_of_react_used_by_canvas_quizzes_client_apps');
   var ChartMixin = require('../../mixins/chart');
   var d3 = require('d3');
   var I18n = require('i18n!quiz_statistics.summary');
@@ -70,7 +70,9 @@ define(function(require) {
           .append('g');
 
       this.title = ChartMixin.addTitle(svg, '');
-      this.description = ChartMixin.addDescription(svg, '');
+
+      const descriptionHolder = (this.refs.wrapper && d3.select(this.refs.wrapper.getDOMNode())) || svg
+      this.description = ChartMixin.addDescription(descriptionHolder, '');
 
       svg.append('g')
         .attr('class', 'x axis')
@@ -99,13 +101,27 @@ define(function(require) {
       var data = this.chartData = this.calculateChartData(props);
       var avgScore = props.scoreAverage / props.pointsPossible * 100.0;
       labelOptions = this.calculateStudentStatistics(avgScore, data);
+      var textForScreenreaders = I18n.t('audible_chart_description',
+        '%{above_average} students scored above or at the average, and %{below_average} below. ', {
+          above_average: labelOptions.aboveAverage,
+          below_average: labelOptions.belowAverage
+      })
+
+      data.forEach(function (datum, i) {
+        if (datum !== 0) {
+          textForScreenreaders += I18n.t({
+              one: "1 student in percentile %{percentile}. ",
+              other: "%{count} students in percentile %{percentile}. "
+            },{
+              count: datum,
+              percentile: i + ''
+            }
+          )
+        }
+      })
 
       this.title.text(I18n.t('chart_title', 'Score percentiles chart'));
-      this.description.text(I18n.t('audible_chart_description',
-      '%{above_average} students scored above or at the average, and %{below_average} below.', {
-        above_average: labelOptions.aboveAverage,
-        below_average: labelOptions.belowAverage
-      }));
+      this.description.text(textForScreenreaders);
 
       this.renderBars(this.barContainer, props);
     },

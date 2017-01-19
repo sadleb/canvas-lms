@@ -96,6 +96,13 @@ describe "Wiki Pages" do
       switch_editor_views(wiki_page_body)
       expect(f('textarea')).to include_text('test')
     end
+
+    it "blocks linked page from redirecting parent page", priority: "2", test_id: 927147 do
+      @course.wiki.wiki_pages.create!(title: 'Garfield and Odie Food Preparation',
+        body: '<a href="http://example.com/poc/" target="_blank" id="click_here_now">click_here</a>')
+      get "/courses/#{@course.id}/pages/garfield-and-odie-food-preparation"
+      expect(f('#click_here_now').attribute("rel")).to eq "noreferrer"
+    end
   end
 
   context "Index Page as a teacher" do
@@ -352,23 +359,14 @@ describe "Wiki Pages" do
         get "/courses/#{@course.id}/pages/#{@vpage.url}/revisions"
       end
 
-      it "should let the revisions be focused" do
+      it "should focus the revision buttons" do
         driver.execute_script("$('.close-button').focus();")
         f('.close-button').send_keys(:tab)
-        all_revisions = ff('.revision')
+        all_revisions = ff('.revision-details')
         all_revisions.each do |revision|
           check_element_has_focus(revision)
           revision.send_keys(:tab)
         end
-      end
-
-      it "should focus on the 'restore this revision link' after selecting a revision" do
-        driver.execute_script("$('.revision:nth-child(2)').focus();")
-        element = fj('.revision:nth-child(2)')
-        element.send_keys(:enter)
-        wait_for_ajaximations
-        element.send_keys(:tab)
-        check_element_has_focus(f('.restore-link'))
       end
 
       it "should validate that revision restored is displayed", priority: "1", test_id: 126832 do
@@ -388,6 +386,13 @@ describe "Wiki Pages" do
         f('.btn-primary').click
         wait_for_ajaximations
         expect(f('div.user_content.clearfix.enhanced > p').text).to include 'published by teacher'
+      end
+
+      it "keeps focus on clicked revision button" do
+        driver.execute_script("$('button.revision-details')[1].focus();")
+        ff('button.revision-details')[1].click
+        wait_for_ajaximations
+        check_element_has_focus(ff('button.revision-details')[1])
       end
     end
 

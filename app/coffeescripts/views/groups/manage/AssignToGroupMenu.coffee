@@ -45,14 +45,15 @@ define [
             else if @cloneCategoryView.changeGroups
               @moveUser(newGroupId)
             else
-              $("[data-user-id='#{userId}']").focus()
+              $("[data-user-id='user_#{userId}']").focus()
               @hide()
       else
         @moveUser(newGroupId)
 
     moveUser: (newGroupId) ->
       @collection.category.reassignUser(@model, @collection.get(newGroupId))
-      @hide()
+      @$el.detach()
+      @trigger("close", {"userMoved": true })
 
     toJSON: ->
       hasGroups = @collection.length > 0

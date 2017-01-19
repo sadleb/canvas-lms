@@ -724,6 +724,7 @@ describe "Canvas Cartridge importing" do
     asmnt.due_at = 1.week.from_now
     asmnt.all_day_date = 1.week.from_now
     asmnt.turnitin_enabled = true
+    asmnt.vericite_enabled = true
     asmnt.peer_reviews = true
     asmnt.anonymous_peer_reviews = true
     asmnt.peer_review_count = 37
@@ -755,6 +756,7 @@ describe "Canvas Cartridge importing" do
     expect(asmnt_2.peer_reviews_due_at.to_i).to eq asmnt.peer_reviews_due_at.to_i
     expect(asmnt_2.all_day_date).to eq asmnt.all_day_date
     expect(asmnt_2.turnitin_enabled).to eq asmnt.turnitin_enabled
+    expect(asmnt_2.vericite_enabled).to eq asmnt.vericite_enabled
     expect(asmnt_2.peer_reviews).to eq asmnt.peer_reviews
     expect(asmnt_2.anonymous_peer_reviews).to eq asmnt.peer_reviews
     expect(asmnt_2.peer_review_count).to eq asmnt.peer_review_count
@@ -763,7 +765,7 @@ describe "Canvas Cartridge importing" do
   end
 
   it "should import external tool assignments" do
-    course_with_teacher_logged_in
+    course_with_teacher
     assignment_model(:course => @copy_from, :points_possible => 40, :submission_types => 'external_tool', :grading_type => 'points')
     tag_from = @assignment.build_external_tool_tag(:url => "http://example.com/one", :new_tab => true)
     tag_from.content_type = 'ContextExternalTool'
@@ -1400,12 +1402,12 @@ XML
 end
 
 describe "cc assignment extensions" do
-  before(:all) do
+  before(:once) do
     archive_file_path = File.join(File.dirname(__FILE__) + "/../../../fixtures/migration/cc_assignment_extension.zip")
     unzipped_file_path = create_temp_dir!
-    @converter = CC::Importer::Canvas::Converter.new(:export_archive_path=>archive_file_path, :course_name=>'oi', :base_download_dir=>unzipped_file_path)
-    @converter.export
-    @course_data = @converter.course.with_indifferent_access
+    converter = CC::Importer::Canvas::Converter.new(:export_archive_path=>archive_file_path, :course_name=>'oi', :base_download_dir=>unzipped_file_path)
+    converter.export
+    @course_data = converter.course.with_indifferent_access
 
     @course = course
     @migration = ContentMigration.create(:context => @course)
@@ -1414,10 +1416,6 @@ describe "cc assignment extensions" do
     enable_cache do
       Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
     end
-  end
-
-  after(:all) do
-    truncate_all_tables
   end
 
   it "should parse canvas data from cc extension" do
@@ -1448,13 +1446,13 @@ describe "cc assignment extensions" do
 end
 
 describe "matching question reordering" do
-  before(:all) do
+  before(:once) do
     skip unless Qti.qti_enabled?
     archive_file_path = File.join(File.dirname(__FILE__) + "/../../../fixtures/migration/canvas_matching_reorder.zip")
     unzipped_file_path = create_temp_dir!
-    @converter = CC::Importer::Canvas::Converter.new(:export_archive_path=>archive_file_path, :course_name=>'oi', :base_download_dir=>unzipped_file_path)
-    @converter.export
-    @course_data = @converter.course.with_indifferent_access
+    converter = CC::Importer::Canvas::Converter.new(:export_archive_path=>archive_file_path, :course_name=>'oi', :base_download_dir=>unzipped_file_path)
+    converter.export
+    @course_data = converter.course.with_indifferent_access
 
     @course = course
     @migration = ContentMigration.create(:context => @course)
@@ -1463,10 +1461,6 @@ describe "matching question reordering" do
     enable_cache do
       Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
     end
-  end
-
-  after(:all) do
-    truncate_all_tables
   end
 
   it "should reorder matching question answers with images if possible (and warn otherwise)" do
@@ -1490,6 +1484,45 @@ describe "matching question reordering" do
     end
     fixed.question_data[:matches].each do |match|
       expect(Nokogiri::HTML(match[:text]).at_css("img")).to be_blank
+    end
+  end
+
+  describe "announcements vs. discussion topics" do
+    before(:once) do
+      archive_file_path = File.join(File.dirname(__FILE__) + "/../../../fixtures/migration/canvas_announcement.zip")
+      unzipped_file_path = create_temp_dir!
+      converter = CC::Importer::Canvas::Converter.new(:export_archive_path=>archive_file_path, :course_name=>'oi', :base_download_dir=>unzipped_file_path)
+      converter.export
+      @course_data = converter.course.with_indifferent_access
+
+      @course = course
+      @migration = ContentMigration.create(:context => @course)
+      @migration.migration_type = "canvas_cartridge_importer"
+    end
+
+    it "should separate the announcements into a separate array in the course hash" do
+      expect(@course_data[:announcements].count).to eq 1
+      expect(@course_data[:discussion_topics].count).to eq 1
+    end
+
+    it "should not import announcements with discussion topics" do
+      @migration.migration_settings[:migration_ids_to_import] = {:copy => {:all_discussion_topics => "1"}}
+      enable_cache do
+        Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
+      end
+      expect(@migration.migration_issues.count).to eq 0
+      expect(@course.announcements.count).to eq 0
+      expect(@course.discussion_topics.only_discussion_topics.count).to eq 1
+    end
+
+    it "should not import discussion topics with announcements" do
+      @migration.migration_settings[:migration_ids_to_import] = {:copy => {:all_announcements => "1"}}
+      enable_cache do
+        Importers::CourseContentImporter.import_content(@course, @course_data, nil, @migration)
+      end
+      expect(@migration.migration_issues.count).to eq 0
+      expect(@course.announcements.count).to eq 1
+      expect(@course.discussion_topics.only_discussion_topics.count).to eq 0
     end
   end
 end

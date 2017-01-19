@@ -9,10 +9,6 @@
   top: -16px;
 }
 
-#weight-groups {
-  padding-left: 15px;
-}
-
 .ag-header-controls {
   position: absolute;
   top: 0;
@@ -28,24 +24,20 @@
 }
 
 #ag_weights_wrapper {
-  overflow-y: auto;
-  position: absolute;
-  top: 35px;
-  left: 15px;
-  right: 15px;
-  bottom: 15px;
-  #assignment_groups_weights {
-    margin-top: 30px;
-    width: 100%;
-    td {
-      padding: 10px 0px;
-    }
-    td.right-align {
-      text-align: right;
-    }
-    tfoot td {
-      font-weight: bold;
-    }
+  position: relative;
+  padding: 0 20px;
+}
+
+#assignment_groups_weights {
+  width: 100%;
+  td {
+    padding: 10px 0px;
+  }
+  td.right-align {
+    text-align: right;
+  }
+  tfoot td {
+    font-weight: bold;
   }
 }
 
@@ -61,8 +53,38 @@
   }
 }
 
+.form-dialog-content.ag-weights-content {
+  bottom: 59px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+
+.ag-weights-message {
+  display: block;
+  margin: 20px 20px 0 20px;
+}
+
+.ag-weights-content .checkbox {
+  display: block;
+  margin: 20px;
+}
+
+.ag-weights-form {
+  overflow-y: scroll;
+}
+
+.ag-weights-table {
+  padding-bottom: 10px;
+}
+
 .ag-weights-tr {
   border-bottom: 1px solid #dae1e6;
+}
+
+.ag-settings-weights-message {
+  margin: 0 0 20px 0;
 }
 
 .remove_never_drop {
@@ -96,6 +118,14 @@
   a {
     color: darken($ic-color-neutral, 40%);
   }
+
+  &.disabled {
+    cursor: not-allowed;
+
+    .icon-drag-handle {
+      color: darken($ic-color-neutral, 10%);
+    }
+  }
 }
 
 .sortable-handle {
@@ -106,11 +136,6 @@
   }
 }
 
-.draggable-handle {
-  margin: 0 4px 0 -15px;
-  padding: 0 0px 0 10px;
-}
-
 .sortable-dropzone {
   height: 50px;
   background-color: #dce1e6;
@@ -119,10 +144,9 @@
 }
 
 .ui-sortable-helper {
-  background-color: #e8ecef;
-  border: 1px solid #c1c7cf !important;
-  border-radius: 3px;
-  box-shadow: 0px 1px 4px #b7b7b7;
+  background-color: $ic-color-light;
+  border: 1px solid $ic-border-dark !important;
+  box-shadow: 0px 1px 16px rgba(black, 0.3);
 }
 
 .draggable .ui-sortable-helper {
@@ -134,9 +158,9 @@
 
 .draggable-dropzone {
   height: 40px;
-  background-color: #dce1e6;
-  border-right: 1px dashed #c1c7cf;
-  border-left: 1px dashed #c1c7cf;
+  background-color: lighten($ic-color-dark, 15%);
+  border-right: 1px dashed $ic-border-dark;
+  border-left: 1px dashed $ic-border-dark;
 }
 
 .ag-header-controls .tooltip_link {
@@ -150,11 +174,6 @@
 .row-fluid span.grade-display {
   margin-left: 9%;
 }
-
-@if $use_new_styles == false {
-  .with-left-side { min-width: 971px; }
-}
-
 
 .accessible-toggler {
   @include ic-focus-base;

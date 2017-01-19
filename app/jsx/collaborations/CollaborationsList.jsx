@@ -1,9 +1,10 @@
 define([
   'react',
+  'react-dom',
   './Collaboration',
   '../shared/load-more',
   './store/store'
-], (React, Collaboration, LoadMore, {dispatch}) => {
+], (React, ReactDOM, Collaboration, LoadMore, {dispatch}) => {
   class CollaborationsList extends React.Component {
 
     constructor (props) {
@@ -12,7 +13,7 @@ define([
     }
 
     loadMoreCollaborations () {
-      React.findDOMNode(this.refs[`collaboration-${this.props.collaborationsState.list.length - 1}`]).focus();
+      ReactDOM.findDOMNode(this.refs[`collaboration-${this.props.collaborationsState.list.length - 1}`]).focus();
       dispatch(this.props.getCollaborations(this.props.collaborationsState.nextPage));
     }
 
@@ -24,7 +25,7 @@ define([
             hasMore={!!this.props.collaborationsState.nextPage}
             loadMore={this.loadMoreCollaborations} >
             {this.props.collaborationsState.list.map((c, index) => (
-              <Collaboration ref={`collaboration-${index}`} key={c.id} collaboration={c} deleteCollaboration={this.props.deleteCollaboration} openModal={this.props.openModal} />
+              <Collaboration ref={`collaboration-${index}`} key={c.id} collaboration={c} deleteCollaboration={this.props.deleteCollaboration} />
             ))}
           </LoadMore>
         </div>
@@ -36,7 +37,6 @@ define([
     collaborationsState: React.PropTypes.object.isRequired,
     deleteCollaboration: React.PropTypes.func.isRequired,
     getCollaborations: React.PropTypes.func.isRequired,
-    openModal: React.PropTypes.func
   };
 
   return CollaborationsList;

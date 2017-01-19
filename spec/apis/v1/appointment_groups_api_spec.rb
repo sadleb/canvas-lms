@@ -190,6 +190,17 @@ describe AppointmentGroupsController, type: :request do
     expect(cjson.first['user']['id']).to eql @student1.id
   end
 
+  it 'should include all associated context codes, if requested' do
+    ag = AppointmentGroup.create!(:title => "something", :new_appointments => [["2012-01-01 12:00:00", "2012-01-01 13:00:00"]], :contexts => [@course])
+
+    json = api_call(:get, "/api/v1/appointment_groups/#{ag.id}?include[]=all_context_codes", {
+                      :controller => 'appointment_groups', :action => 'show', :format => 'json', :id => ag.id.to_s, :include => ['all_context_codes']})
+    expect(json.keys.sort).to eql((expected_fields + ['all_context_codes', 'appointments']).sort)
+    expect(json['id']).to eql ag.id
+    ccs = json['all_context_codes']
+    expect(ccs).to eql [@course.asset_string]
+  end
+
   it 'should get a manageable appointment group' do
     ag = AppointmentGroup.create!(:title => "something", :new_appointments => [["2012-01-01 12:00:00", "2012-01-01 13:00:00"]], :contexts => [@course])
 
@@ -231,6 +242,26 @@ describe AppointmentGroupsController, type: :request do
     expect(json['requiring_action']).to be_falsey
   end
 
+  it "should return the correct context for appointment slots with existing signups in a different course" do
+    course1 = course_with_teacher(:active_all => true).course
+    student1 = student_in_course(:course => course1, :active_all => true).user
+    course2 = course_with_teacher(:active_all => true, :user => @teacher).course
+    student2 = student_in_course(:course => course2, :active_all => true).user
+    ag = AppointmentGroup.create!(:title => 'bleh',
+                             :participants_per_appointment => 2,
+                             :new_appointments => [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"],
+                                                   ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]],
+                             :contexts => [course1, course2])
+    ag.publish!
+    ag.appointments.first.reserve_for(student1, @teacher)
+    json = api_call_as_user(student2, :get, "/api/v1/appointment_groups/#{ag.id}?include[]=child_events", {
+      :controller => 'appointment_groups', :action => 'show', :format => 'json', :id => ag.to_param, :include => ['child_events'] })
+    appointments = json['appointments']
+    expect(appointments.length).to eq 2
+    expect(appointments[0]['context_code']).to eq course2.asset_string
+    expect(appointments[1]['context_code']).to eq course2.asset_string
+  end
+
   it 'should require action until the min has been met' do
     student_in_course :course => course(:active_all => true), :user => @me, :active_all => true
     ag = AppointmentGroup.create!(:title => "yay", :new_appointments => [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]], :min_appointments_per_participant => 1, :contexts => [@course])
@@ -250,6 +281,28 @@ describe AppointmentGroupsController, type: :request do
     expect(json.keys.sort).to eql((expected_fields + ['appointments']).sort)
     expect(json['id']).to eql ag.id
     expect(json['requiring_action']).to be_falsey
+  end
+
+  describe 'past appointments' do
+    before :once do
+      @ag = AppointmentGroup.create!(:title => "yay",
+                                     :new_appointments => [["#{Time.now.year - 1}-01-01 12:00:00", "#{Time.now.year - 1}-01-01 13:00:00"],
+                                                           ["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"]],
+                                     :contexts => [@course])
+      @ag.publish!
+    end
+
+    it 'returns past appointment slots for teachers' do
+      json = api_call_as_user(@teacher, :get, "/api/v1/appointment_groups/#{@ag.id}",
+              { :controller => 'appointment_groups', :action => 'show', :format => 'json', :id => @ag.to_param})
+      expect(json['appointments'].size).to eq 2
+    end
+
+    it 'does not return past appointment slots for students' do
+      json = api_call_as_user(@student, :get, "/api/v1/appointment_groups/#{@ag.id}",
+              { :controller => 'appointment_groups', :action => 'show', :format => 'json', :id => @ag.to_param})
+      expect(json['appointments'].size).to eq 1
+    end
   end
 
   it 'should enforce create permissions' do
@@ -440,6 +493,36 @@ describe AppointmentGroupsController, type: :request do
           expect(json).to be_empty
         end
       end
+    end
+  end
+
+  describe "next_appointment" do
+    before :once do
+      @ag1 = AppointmentGroup.create!(:title => "past", :contexts => [@course2], :new_appointments =>
+                                       [["#{Time.now.year - 1}-01-01 12:00:00", "#{Time.now.year - 1}-01-01 13:00:00"]])
+      @ag1.publish!
+      @ag2 = AppointmentGroup.create!(:title => "future1", :contexts => [@course2],
+                                      :participants_per_appointment => 1, :max_appointments_per_participant => 1,
+                                      :new_appointments =>
+                                       [["#{Time.now.year + 1}-01-01 12:00:00", "#{Time.now.year + 1}-01-01 13:00:00"],
+                                        ["#{Time.now.year + 1}-01-01 13:00:00", "#{Time.now.year + 1}-01-01 14:00:00"]])
+      @ag2.publish!
+      @ag2.appointments.first.reserve_for(@student1, @me)
+      @path = "/api/v1/appointment_groups/next_appointment?appointment_group_ids[]=#{@ag1.to_param}&appointment_group_ids[]=#{@ag2.to_param}"
+      @params = { :controller => 'appointment_groups', :action => 'next_appointment', :format => 'json',
+                  :appointment_group_ids => [@ag1.to_param, @ag2.to_param] }
+    end
+
+    it 'returns the first available appointment in the future' do
+      json = api_call_as_user(@student2, :get, @path, @params)
+      expect(json.length).to eq 1
+      expect(json[0]['id']).to eq @ag2.appointments.last.id
+    end
+
+    it 'returns an empty array if no future appointments are available' do
+      @ag2.appointments.last.reserve_for(@student2, @me)
+      json = api_call_as_user(@student2, :get, @path, @params)
+      expect(json.length).to eq 0
     end
   end
 end

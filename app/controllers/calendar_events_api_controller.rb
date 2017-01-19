@@ -71,6 +71,11 @@ require 'atom'
 #           "description": "if specified, it indicates which calendar this event should be displayed on. for example, a section-level event would have the course's context code here, while the section's context code would be returned above)",
 #           "type": "string"
 #         },
+#         "all_context_codes": {
+#           "description": "a comma-separated list of all calendar contexts this event is part of",
+#           "example": "course_123,course_456",
+#           "type": "string"
+#         },
 #         "workflow_state": {
 #           "description": "Current state of the event ('active', 'locked' or 'deleted') 'locked' indicates that start_at/end_at cannot be changed (though the event could be deleted). Normally only reservations or time slots with reservations are locked (see the Appointment Groups API)",
 #           "example": "active",
@@ -449,15 +454,7 @@ class CalendarEventsApiController < ApplicationController
       title = dup_options[:title]
 
       if dup_options[:count] > 0
-        section_events = params[:calendar_event].delete(:child_event_data)
-        # handles multiple section repeast
-        section_events.each do |event|
-          event[:title] = title
-          section_dup_options = get_duplicate_params(event)
-          events += create_event_and_duplicates(section_dup_options)
-        end if section_events.present?
-
-        events += create_event_and_duplicates(dup_options) unless section_events.present?
+        events += create_event_and_duplicates(dup_options)
       else
         events = [@event]
       end
@@ -521,11 +518,12 @@ class CalendarEventsApiController < ApplicationController
     get_event
     if authorized_action(@event, @current_user, :reserve)
       begin
-        if params[:participant_id] && @event.appointment_group.grants_right?(@current_user, session, :manage)
-          participant = @event.appointment_group.possible_participants.detect { |p| p.id == params[:participant_id].to_i }
+        participant_id = Shard.relative_id_for(params[:participant_id], Shard.current, Shard.current) if params[:participant_id]
+        if participant_id && @event.appointment_group.grants_right?(@current_user, session, :manage)
+          participant = @event.appointment_group.possible_participants.detect { |p| p.id == participant_id }
         else
           participant = @event.appointment_group.participant_for(@current_user)
-          participant = nil if participant && params[:participant_id] && params[:participant_id].to_i != participant.id
+          participant = nil if participant && participant_id && participant_id != participant.id
         end
         raise CalendarEvent::ReservationError, "invalid participant" unless participant
         reservation = @event.reserve_for(participant, @current_user,
@@ -550,9 +548,9 @@ class CalendarEventsApiController < ApplicationController
   #
   # Update and return a calendar event
   #
-  # @argument calendar_event[context_code] [Required, String]
-  #   Context code of the course/group/user whose calendar this event should be
-  #   added to.
+  # @argument calendar_event[context_code] [Optional, String]
+  #   Context code of the course/group/user to move this event to.
+  #   Scheduler appointments and events with section-specific times cannot be moved between calendars.
   # @argument calendar_event[title] [String]
   #   Short title for the calendar event.
   # @argument calendar_event[description] [String]
@@ -587,17 +585,32 @@ class CalendarEventsApiController < ApplicationController
   def update
     get_event(true)
     if authorized_action(@event, @current_user, :update)
+      assignment_params = nil
       if @event.is_a?(Assignment)
-        params[:calendar_event] = {:due_at => params[:calendar_event][:start_at]}
+        assignment_params = {:due_at => params[:calendar_event][:start_at]}
       else
         @event.validate_context! if @event.context.is_a?(AppointmentGroup)
         @event.updating_user = @current_user
       end
-      params[:calendar_event].delete(:context_code)
+      context_code = params[:calendar_event].delete(:context_code)
+      if context_code
+        context = Context.find_by_asset_string(context_code)
+        raise ActiveRecord::RecordNotFound, "Invalid context_code" unless context
+        if @event.context != context
+          if @event.context.is_a?(AppointmentGroup)
+            return render :json => { :message => 'Cannot move Scheduler appointments between calendars' }, :status => :bad_request
+          end
+          if @event.parent_calendar_event_id.present? || @event.child_events.any? || @event.effective_context_code.present?
+            return render :json => { :message => 'Cannot move events with section-specific times between calendars' }, :status => :bad_request
+          end
+          @event.context = context
+        end
+        return unless authorized_action(@event, @current_user, :create)
+      end
       if params[:calendar_event][:description].present?
         params[:calendar_event][:description] = process_incoming_html_content(params[:calendar_event][:description])
       end
-      if @event.update_attributes(params[:calendar_event])
+      if @event.update_attributes(assignment_params || params[:calendar_event])
         render :json => event_json(@event, @current_user, session)
       else
         render :json => @event.errors, :status => :bad_request
@@ -728,13 +741,26 @@ class CalendarEventsApiController < ApplicationController
     selected_contexts = @current_user.preferences[:selected_calendar_contexts] || []
 
     contexts = @contexts.map do |context|
-      {
+      context_data = {
         id: context.id,
         name: context.nickname_for(@current_user),
         asset_string: context.asset_string,
         color: @current_user.custom_colors[context.asset_string],
         selected: selected_contexts.include?(context.asset_string)
       }
+
+      if context.is_a?(Course)
+        context_data[:sections] = context.sections_visible_to(@current_user).map do |section|
+          {
+            id: section.id,
+            name: section.name,
+            asset_string: section.asset_string,
+            selected: selected_contexts.include?(section.asset_string),
+          }
+        end
+      end
+
+      context_data
     end
 
     render json: {contexts: StringifyIds.recursively_stringify_ids(contexts)}
@@ -744,6 +770,150 @@ class CalendarEventsApiController < ApplicationController
     @current_user.preferences[:selected_calendar_contexts] = params[:selected_contexts]
     @current_user.save!
     render json: {status: 'ok'}
+  end
+
+  # @API Set a course timetable
+  # @beta
+  #
+  # Creates and updates "timetable" events for a course.
+  # Can automaticaly generate a series of calendar events based on simple schedules
+  # (e.g. "Monday and Wednesday at 2:00pm" )
+  #
+  # Existing timetable events for the course and course sections
+  # will be updated if they still are part of the timetable.
+  # Otherwise, they will be deleted.
+  #
+  # @argument timetables[course_section_id][] [Array]
+  #   An array of timetable objects for the course section specified by course_section_id.
+  #   If course_section_id is set to "all", events will be created for the entire course.
+  #
+  # @argument timetables[course_section_id][][weekdays] [String]
+  #   A comma-separated list of abbreviated weekdays
+  #   (Mon-Monday, Tue-Tuesday, Wed-Wednesday, Thu-Thursday, Fri-Friday, Sat-Saturday, Sun-Sunday)
+  #
+  # @argument timetables[course_section_id][][start_time] [String]
+  #   Time to start each event at (e.g. "9:00 am")
+  #
+  # @argument timetables[course_section_id][][end_time] [String]
+  #   Time to end each event at (e.g. "9:00 am")
+  #
+  # @argument timetables[course_section_id][][location_name] [Optional, String]
+  #   A location name to set for each event
+  #
+  # @example_request
+  #
+  #   curl 'https://<canvas>/api/v1/calendar_events/timetable' \
+  #        -X POST \
+  #        -F 'timetables[all][][weekdays]=Mon,Wed,Fri' \
+  #        -F 'timetables[all][][start_time]=11:00 am' \
+  #        -F 'timetables[all][][end_time]=11:50 am' \
+  #        -F 'timetables[all][][location_name]=Room 237' \
+  #        -H "Authorization: Bearer <token>"
+  def set_course_timetable
+    get_context
+    if authorized_action(@context, @current_user, :manage_calendar)
+      timetable_data = params[:timetables]
+
+      builders = {}
+      updated_section_ids = []
+      timetable_data.each do |section_id, timetables|
+        timetable_data[section_id] = Array(timetables)
+        section = section_id == 'all' ? nil : api_find(@context.active_course_sections, section_id)
+        updated_section_ids << section.id if section
+
+        builder = Courses::TimetableEventBuilder.new(course: @context, course_section: section)
+        builders[section_id] = builder
+
+        builder.process_and_validate_timetables(timetables)
+        if builder.errors.present?
+          return render :json => {:errors => builder.errors}, :status => :bad_request
+        end
+      end
+
+      @context.timetable_data = timetable_data # so we can retrieve it later
+      @context.save!
+
+      timetable_data.each do |section_id, timetables|
+        builder = builders[section_id]
+        event_hashes = builder.generate_event_hashes(timetables)
+        builder.process_and_validate_event_hashes(event_hashes)
+        raise "error creating timetable events #{builder.errors.join(", ")}" if builder.errors.present?
+        builder.send_later(:create_or_update_events, event_hashes) # someday we may want to make this a trackable progress job /shrug
+      end
+
+      # delete timetable events for sections missing here
+      ignored_section_ids = @context.active_course_sections.where.not(:id => updated_section_ids).pluck(:id)
+      if ignored_section_ids.any?
+        CalendarEvent.active.for_timetable.where(:context_type => "CourseSection", :context_id => ignored_section_ids).
+          update_all(:workflow_state => 'deleted', :deleted_at => Time.now.utc)
+      end
+
+      render :json => {:status => 'ok'}
+    end
+  end
+
+  # @API Get course timetable
+  # @beta
+  #
+  # Returns the last timetable set by the
+  # {api:CalendarEventsApiController#set_course_timetable Set a course timetable} endpoint
+  #
+  def get_course_timetable
+    get_context
+    if authorized_action(@context, @current_user, :manage_calendar)
+      timetable_data = @context.timetable_data || {}
+      render :json => timetable_data
+    end
+  end
+
+  # @API Create or update events directly for a course timetable
+  # @beta
+  #
+  # Creates and updates "timetable" events for a course or course section.
+  # Similar to {api:CalendarEventsApiController#set_course_timetable setting a course timetable},
+  # but instead of generating a list of events based on a timetable schedule,
+  # this endpoint expects a complete list of events.
+  #
+  # @argument course_section_id [Optional, String]
+  #   Events will be created for the course section specified by course_section_id.
+  #   If not present, events will be created for the entire course.
+  #
+  # @argument events[] [Array]
+  #   An array of event objects to use.
+  #
+  # @argument events[][start_at] [DateTime]
+  #   Start time for the event
+  #
+  # @argument events[][end_at] [DateTime]
+  #   End time for the event
+  #
+  # @argument events[][location_name] [Optional, String]
+  #   Location name for the event
+  #
+  # @argument events[][code] [Optional, String]
+  #   A unique identifier that can be used to update the event at a later time
+  #   If one is not specified, an identifier will be generated based on the start and end times
+  #
+  def set_course_timetable_events
+    get_context
+    if authorized_action(@context, @current_user, :manage_calendar)
+      section = api_find(@context.active_course_sections, params[:course_section_id]) if params[:course_section_id]
+      builder = Courses::TimetableEventBuilder.new(course: @context, course_section: section)
+
+      event_hashes = params[:events]
+      event_hashes.each do |hash|
+        [:start_at, :end_at].each do |key|
+          hash[key] = CanvasTime.try_parse(hash[key])
+        end
+      end
+      builder.process_and_validate_event_hashes(event_hashes)
+      if builder.errors.present?
+        return render :json => {:errors => builder.errors}, :status => :bad_request
+      end
+
+      builder.send_later(:create_or_update_events, event_hashes)
+      render json: {status: 'ok'}
+    end
   end
 
   protected
@@ -821,7 +991,8 @@ class CalendarEventsApiController < ApplicationController
       codes.each do |c|
         unless pertinent_context_codes.include?(c)
           context = Context.find_by_asset_string(c)
-          @contexts.push context if context && (context.is_public || context.public_syllabus)
+          @public_to_auth = true if context.is_a?(Course) && user && (context.public_syllabus_to_auth  || context.public_syllabus || context.is_public || context.is_public_to_auth_users)
+          @contexts.push context if context.is_a?(Course) && (context.is_public || context.public_syllabus || @public_to_auth)
         end
       end
 
@@ -833,7 +1004,8 @@ class CalendarEventsApiController < ApplicationController
     @context_codes = selected_contexts.map(&:asset_string)
     @section_codes = []
     if user
-      @section_codes = user.section_context_codes(@context_codes)
+      is_admin = user.roles(@domain_root_account).include?('admin') # if we're an admin - don't try to figure out which sections we belong to; just include all of them
+      @section_codes = user.section_context_codes(@context_codes, is_admin)
     end
 
     if @type == :event && @start_date && user
@@ -842,8 +1014,8 @@ class CalendarEventsApiController < ApplicationController
       if group_codes.present?
         @context_codes += AppointmentGroup.
           reservable_by(user).
-          intersecting(@start_date, @end_date).
           where(id: group_codes).
+          select('appointment_groups.id').
           map(&:asset_string)
       end
       # include manageable appointment group events for the specified contexts
@@ -881,7 +1053,7 @@ class CalendarEventsApiController < ApplicationController
     end
 
     scope = Assignment.where([sql.join(' OR ')] + conditions)
-    return scope unless user
+    return scope if @public_to_auth || !user
 
     student_ids = [user.id]
     courses_to_not_filter = []
@@ -911,7 +1083,7 @@ class CalendarEventsApiController < ApplicationController
 
   def calendar_event_scope(user)
     scope = CalendarEvent.active.order_by_start_at.order(:id)
-    if user
+    if user && !@public_to_auth
       scope = scope.for_user_and_context_codes(user, @context_codes, @section_codes)
     else
       scope = scope.for_context_codes(@context_codes)
@@ -1012,8 +1184,8 @@ class CalendarEventsApiController < ApplicationController
     end
 
     options[:iterator] ||= 0
-    params = set_duplicate_params(options)
-    event = @context.calendar_events.build(params[:calendar_event])
+    event_attributes = set_duplicate_params(params[:calendar_event], options)
+    event = @context.calendar_events.build(event_attributes)
     event.validate_context! if @context.is_a?(AppointmentGroup)
     event.updating_user = @current_user
     event
@@ -1036,6 +1208,7 @@ class CalendarEventsApiController < ApplicationController
         title:     event_data[:title],
         start_at:  event_data[:start_at],
         end_at:    event_data[:end_at],
+        child_event_data: event_data[:child_event_data],
         count:     duplicate_data.fetch(:count, 0).to_i,
         interval:  duplicate_data.fetch(:interval, 1).to_i,
         add_count: value_to_boolean(duplicate_data[:append_iterator]),
@@ -1043,7 +1216,7 @@ class CalendarEventsApiController < ApplicationController
     }
   end
 
-  def set_duplicate_params(options = {})
+  def set_duplicate_params(event_attributes, options = {})
     options[:iterator] ||= 0
     offset_interval = options[:interval] * options[:iterator]
     offset = if options[:frequency] == "monthly"
@@ -1054,10 +1227,20 @@ class CalendarEventsApiController < ApplicationController
                offset_interval.weeks
              end
 
-    params[:calendar_event][:title] = "#{options[:title]} #{options[:iterator] + 1}" if options[:add_count]
-    params[:calendar_event][:start_at] = Time.zone.parse(options[:start_at]) + offset unless options[:start_at].blank?
-    params[:calendar_event][:end_at] = Time.zone.parse(options[:end_at]) + offset unless options[:end_at].blank?
-    params
+    event_attributes[:title] = "#{options[:title]} #{options[:iterator] + 1}" if options[:add_count]
+    event_attributes[:start_at] = Time.zone.parse(options[:start_at]) + offset unless options[:start_at].blank?
+    event_attributes[:end_at] = Time.zone.parse(options[:end_at]) + offset unless options[:end_at].blank?
+
+    if options[:child_event_data].present?
+      event_attributes[:child_event_data] = options[:child_event_data].map do |child_event|
+        new_child_event = child_event.dup
+        new_child_event[:start_at] = Time.zone.parse(child_event[:start_at]) + offset unless child_event[:start_at].blank?
+        new_child_event[:end_at] = Time.zone.parse(child_event[:end_at]) + offset unless child_event[:end_at].blank?
+        new_child_event
+      end
+    end
+
+    event_attributes
   end
 
   def require_user_or_observer
@@ -1069,7 +1252,10 @@ class CalendarEventsApiController < ApplicationController
   def require_authorization
     @errors = {}
     user = @observee || @current_user
-    codes = (params[:context_codes] || [user.asset_string])[0, 10]
+    # appointment groups show up here in find-appointment mode; give them a free ride
+    ag_count = (params[:context_codes] || []).count { |code| code =~ /\Aappointment_group_/ }
+    context_limit = @domain_root_account.settings[:calendar_contexts_limit] || 10
+    codes = (params[:context_codes] || [user.asset_string])[0, context_limit + ag_count]
     get_options(codes, user)
 
     # if specific context codes were requested, ensure the user can access them

@@ -24,6 +24,38 @@ describe ContextModule do
     @module = @course.context_modules.create!(:name => "some module")
   end
 
+  describe "publish_items!" do
+    context "with file usage rights required" do
+      before :each do
+        course_module
+        @course.enable_feature! :usage_rights_required
+        @file = @course.attachments.create!(:display_name => "some file", :uploaded_data => default_uploaded_data, :locked => true)
+        @tag = @module.add_item(:id => @file.id, :type => "attachment")
+      end
+
+      it "should not publish Attachment module items if usage rights are missing" do
+        @file.usage_rights = nil
+        @module.publish_items!
+        expect(@tag.published?).to eql(false)
+        expect(@file.published?).to eql(false)
+      end
+
+      it "should publish Attachment module items if usage rights are present" do
+        @file.usage_rights = @course.usage_rights.create(:use_justification => 'own_copyright')
+        @file.save!
+
+        # ensure models are in sync around publish_items!
+        @module.reload
+        @module.publish_items!
+        @file.reload
+        @tag.reload
+
+        expect(@tag.published?).to eql(true)
+        expect(@file.published?).to eql(true)
+      end
+    end
+  end
+
   describe "available_for?" do
     it "should return true by default" do
       course_module
@@ -35,6 +67,18 @@ describe ContextModule do
       @module.require_sequential_progress = true
       @module.save!
       expect(@module.available_for?(nil)).to eql(true)
+    end
+
+    it "uses provided progression in opts" do
+      course_with_student(active_all: true)
+      @module = @course.context_modules.create!(name: 'some module')
+      @module.unlock_at = 2.months.from_now
+      @module.save!
+      @progression = @module.find_or_create_progression(@student)
+      @progression.workflow_state = :unlocked # don't save
+      expect(@module.available_for?(@student)).to be_falsey
+      opts = {user_context_module_progressions: {@module.id => @progression}}
+      expect(@module.available_for?(@student, opts)).to be_truthy
     end
   end
 
@@ -901,7 +945,7 @@ describe ContextModule do
       @user = User.create!(:name => "some name")
       @course.enroll_student(@user).accept!
 
-      @quiz.assignment.grade_student(@user, :grade => 100)
+      @quiz.assignment.grade_student(@user, grade: 100, grader: @teacher)
 
       @progression = @module.evaluate_for(@user)
       expect(@progression).to be_completed
@@ -1012,7 +1056,7 @@ describe ContextModule do
     end
 
     it 'should not prevent a student from completing a module' do
-      @other_assignment.grade_student(@student, :grade => '95')
+      @other_assignment.grade_student(@student, grade: '95', grader: @teacher)
       expect(@module.evaluate_for(@student)).to be_completed
     end
   end
@@ -1099,6 +1143,14 @@ describe ContextModule do
         expect(@module.content_tags_visible_to(@teacher).map(&:content).include?(@topic)).to be_truthy
         expect(@module.content_tags_visible_to(@student_1).map(&:content).include?(@topic)).to be_truthy
         expect(@module.content_tags_visible_to(@student_2).map(&:content).include?(@topic)).to be_falsey
+      end
+      it "should filter differentiated pages" do
+        @page_assignment = wiki_page_assignment_model(course: @course, only_visible_to_overrides: true)
+        create_section_override_for_assignment(@page_assignment, {course_section: @overriden_section})
+        @module.add_item({id: @page.id, type: 'wiki_page'})
+        expect(@module.content_tags_visible_to(@teacher).map(&:content).include?(@page)).to be_truthy
+        expect(@module.content_tags_visible_to(@student_1).map(&:content).include?(@page)).to be_truthy
+        expect(@module.content_tags_visible_to(@student_2).map(&:content).include?(@page)).to be_falsey
       end
       it "should filter differentiated quizzes" do
         @quiz = Quizzes::Quiz.create!({

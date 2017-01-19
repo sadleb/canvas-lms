@@ -130,7 +130,7 @@ define([
       if (onSubmit) {
         var loadingPromise = $.Deferred(),
             oldHandlers = {};
-        onSubmit(loadingPromise, formData);
+        onSubmit.call(this, loadingPromise, formData);
         $.each(['success', 'error'], function(i, successOrError){
           oldHandlers[successOrError] = options[successOrError];
           options[successOrError] = function() {
@@ -1150,7 +1150,7 @@ define([
         label = $('label[for="'+this.id+'"]');
         if (!label.length) {return;}
         // Added the if statement to prevent the JS from adding the asterisk to the forgot password placeholder.
-        if (this.id != 'pseudonym_session_unique_id_forgot') {label.append($('<span />').text('*').attr('title', I18n.t('errors.field_is_required', "This field is required")));}
+        if (this.id != 'pseudonym_session_unique_id_forgot') {label.append($('<span aria-hidden="true" />').text('*').attr('title', I18n.t('errors.field_is_required', "This field is required")));}
       });
     });
   };

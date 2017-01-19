@@ -47,7 +47,12 @@ define [
       json = super
       @permissionsJSON json
       @observerJSON json
+      @contextCardJSON json
       json
+
+    contextCardJSON: (json) ->
+      if enrollment = _.find(json.enrollments, (e) -> e.role == "StudentEnrollment")
+        json.course_id = enrollment.course_id
 
     permissionsJSON: (json) ->
       json.url = "#{ENV.COURSE_ROOT_URL}/users/#{@model.get('id')}"
@@ -70,6 +75,8 @@ define [
       json.canManage =
         if _.any(['TeacherEnrollment', 'DesignerEnrollment', 'TaEnrollment'], (et) => @model.hasEnrollmentType(et))
           ENV.permissions.manage_admin_users
+        else if @model.hasEnrollmentType('ObserverEnrollment')
+          ENV.permissions.manage_admin_users || ENV.permissions.manage_students
         else
           ENV.permissions.manage_students
       json.customLinks = @model.get('custom_links')

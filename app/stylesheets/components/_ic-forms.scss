@@ -1182,9 +1182,9 @@ Reduce the width of your screen to see how the example components below both sca
 
 */
 
-
+$ic-Input-border: lighten($ic-color-dark, 65);
 @if $use_high_contrast { $ic-Input-border: $ic-color-dark; }
-@else { $ic-Input-border: lighten($ic-color-dark, 65); }
+
 $ic-Input-standard-height: 38px;
 
 @mixin ic-input-variant($border-color: $ic-Input-border, $color: $ic-brand-primary) {
@@ -1291,6 +1291,7 @@ select.ic-Input, input[type="file"].ic-Input {
 // special styles for textarea
 textarea.ic-Input {
   height: auto;
+  resize: vertical;
 }
 
 // We removed -webkit-appearance from anything with the
@@ -1332,7 +1333,6 @@ select.ic-Input:not(*:root) {
         padding: 0 0 0 $ic-sp;
         background: transparent;
       }
-
       .ic-Form-control:not(.ic-Form-control--checkbox):not(.ic-Form-control--radio),
       .ic-Checkbox-group {
         flex: 1;
@@ -1413,13 +1413,13 @@ select.ic-Input:not(*:root) {
   _:-ms-input-placeholder, :root  {
     .ic-Form-group.ic-Form-group--horizontal {
 
-      .ic-Form-control:not(.ic-Form-control--checkbox):not(.ic-Form-control--radio) {
+      > .ic-Form-control:not(.ic-Form-control--checkbox):not(.ic-Form-control--radio) {
         .ic-Form-help-text {
           padding-left: $ic-horizontal-form-offset + $ic-sp*2;
         }
       }
 
-      .ic-Fieldset--radio-checkbox {
+      > .ic-Fieldset--radio-checkbox {
         padding-left: $ic-horizontal-form-offset + $ic-sp*2;
 
         .ic-Legend {
@@ -1523,9 +1523,11 @@ select.ic-Input:not(*:root) {
 form.ic-Form-group { margin: 0; }
 
 .ic-Form-control {
+  display: block;
   box-sizing: border-box;
   margin-bottom: $ic-sp*1.5;
   position: relative;
+  display: block;
 
   .ic-Form-control--radio {
     margin-bottom: 0;
@@ -1585,7 +1587,7 @@ form.ic-Form-group { margin: 0; }
   margin: 0 0 $ic-sp/2;
   display: block;
   line-height: $ic-label-line-height;
-  font-weight: 500;
+  font-weight: bold;
   @include fontSize($ic-font-size--small);
 }
 
@@ -1613,7 +1615,7 @@ form.ic-Form-group { margin: 0; }
 
     .ic-Legend {
       margin-bottom: $ic-sp/2;
-      font-weight: 500;
+      font-weight: bold;
       @include fontSize($ic-font-size--small);
       border-bottom: none;
       padding-bottom: 0;
@@ -1647,7 +1649,7 @@ form.ic-Form-group { margin: 0; }
     position: relative;
     z-index: 1;
     padding: $ic-sp/3 0 $ic-sp/3 $ic-radio-checkbox-left-offset;
-    font-weight: 400;
+    font-weight: normal;
     display: inline-block;
 
     &:before {
@@ -1714,6 +1716,7 @@ form.ic-Form-group { margin: 0; }
       background-color: $ic-color-light;
       border: 2px solid transparent;
       border-radius: $borderRadius;
+      color: $ic-font-color-dark;
 
       &:hover {
         border-color: $ic-border-light;
@@ -1727,7 +1730,6 @@ form.ic-Form-group { margin: 0; }
         display: block;
         width: 1.5rem;
         height: 1.5rem;
-        fill: $ic-font-color-dark;
       }
     }
 
@@ -1735,9 +1737,7 @@ form.ic-Form-group { margin: 0; }
       &:checked {
         ~ .ic-Label {
           border-color: $ic-brand-primary;
-          > svg {
-            fill: $ic-brand-primary;
-          }
+          color: $ic-brand-primary;
         }
       }
       &:focus {
@@ -1788,7 +1788,7 @@ form.ic-Form-group { margin: 0; }
     position: relative;
     z-index: 1;
     padding: $ic-sp/3 0 $ic-sp/3 $ic-radio-checkbox-left-offset;
-    font-weight: 400;
+    font-weight: normal;
     display: inline-block;
 
     &:before {
@@ -2003,7 +2003,9 @@ form.ic-Form-group { margin: 0; }
 
 .ic-Form-help-text {
   @include fontSize(12px);
+  display: block;
   margin-top: $ic-sp/2;
   color: $ic-font-color--subdued;
   width: 100%;
+  line-height: 1.5;
 }

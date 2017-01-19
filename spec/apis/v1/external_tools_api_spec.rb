@@ -68,9 +68,9 @@ describe ExternalToolsController, type: :request do
       error_call(@course)
     end
 
-    it "should give unauthorized response" do
+    it "should give authorized response" do
       course_with_student_logged_in(:active_all => true, :course => @course, :name => "student")
-      unauthorized_call(@course)
+      authorized_call(@course)
     end
 
     it "should paginate" do
@@ -182,8 +182,8 @@ describe ExternalToolsController, type: :request do
           code = get_raw_sessionless_launch_url(@course, 'course', params)
           expect(code).to eq 400
           json = JSON.parse(response.body)
-          expect(json["errors"]["id"].first["message"]).to eq 'An id or a url must be provided'
-          expect(json["errors"]["url"].first["message"]).to eq 'An id or a url must be provided'
+          expect(json["errors"]["id"].first["message"]).to eq 'A tool id, tool url, or module item id must be provided'
+          expect(json["errors"]["url"].first["message"]).to eq 'A tool id, tool url, or module item id must be provided'
         end
 
         it 'redirects if there is no matching tool for the launch_url, and tool id' do
@@ -413,6 +413,13 @@ describe ExternalToolsController, type: :request do
                     {:controller => 'external_tools', :action => 'index',
                      :format => 'json', :"#{type}_id" => context.id.to_s})
     expect(response.code).to eq "401"
+  end
+
+  def authorized_call(context, type="course")
+    raw_api_call(:get, "/api/v1/#{type}s/#{context.id}/external_tools.json",
+                    {:controller => 'external_tools', :action => 'index',
+                     :format => 'json', :"#{type}_id" => context.id.to_s})
+    expect(response.code).to eq "200"
   end
 
   def paginate_call(context, type="course")
@@ -652,7 +659,8 @@ describe ExternalToolsController, type: :request do
      "link_selection"=>nil,
      "assignment_selection"=>nil,
      "post_grades"=>nil,
-     "collaboration"=>nil
+     "collaboration"=>nil,
+     "assignment_configuration"=>nil
     }
   end
 end

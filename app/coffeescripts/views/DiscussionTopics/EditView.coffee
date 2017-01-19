@@ -18,12 +18,12 @@ define [
   'compiled/views/calendar/MissingDateDialogView'
   'compiled/views/editor/KeyboardShortcuts'
   'jsx/shared/conditional_release/ConditionalRelease'
-  'jquery.instructure_misc_helpers' # $.scrollSidebar
+  'compiled/util/deparam'
   'compiled/jquery.rails_flash_notifications' #flashMessage
 ], (I18n, ValidatedFormView, AssignmentGroupSelector, GradingTypeSelector,
 GroupCategorySelector, PeerReviewsSelector, PostToSisSelector, _, template, RichContentEditor,
 htmlEscape, DiscussionTopic, Announcement, Assignment, $, preventDefault, MissingDateDialog, KeyboardShortcuts,
-ConditionalRelease) ->
+ConditionalRelease, deparam) ->
 
   RichContentEditor.preloadRemoteModule()
 
@@ -53,6 +53,7 @@ ConditionalRelease) ->
       'change #use_for_grading' : 'toggleGradingDependentOptions'
       'change #discussion_topic_assignment_points_possible' : 'handlePointsChange'
       'change' : 'onChange'
+      'tabsbeforeactivate #discussion-edit-view' : 'onTabChange'
     )
 
     messages:
@@ -66,10 +67,28 @@ ConditionalRelease) ->
       @assignment = @model.get("assignment")
       @initialPointsPossible = @assignment.pointsPossible()
       @dueDateOverrideView = options.views['js-assignment-overrides']
-      @model.on 'sync', =>
+      @on 'success', =>
         @unwatchUnload()
-        window.location = @model.get 'html_url'
+        @redirectAfterSave()
       super
+
+    redirectAfterSave: ->
+      window.location = @locationAfterSave(deparam())
+
+    locationAfterSave: (params) =>
+      if params['return_to']
+        params['return_to']
+      else
+        @model.get 'html_url'
+
+    redirectAfterCancel: ->
+      location = @locationAfterCancel(deparam())
+      window.location = location if location
+
+    locationAfterCancel: (params) =>
+      return params['return_to'] if params['return_to']?
+      return ENV.CANCEL_TO if ENV.CANCEL_TO?
+      null
 
     isTopic: => @model.constructor is DiscussionTopic
 
@@ -91,6 +110,7 @@ ConditionalRelease) ->
         canModerate: @permissions.CAN_MODERATE
         isLargeRoster: ENV?.IS_LARGE_ROSTER || false
         threaded: data.discussion_type is "threaded"
+        inClosedGradingPeriod: @assignment.inClosedGradingPeriod()
       json.assignment = json.assignment.toView()
       json
 
@@ -98,23 +118,25 @@ ConditionalRelease) ->
     handleCancel: (ev) =>
       ev.preventDefault()
       @unwatchUnload()
-      window.location = ENV.CANCEL_REDIRECT_URL if ENV.CANCEL_REDIRECT_URL?
+      @redirectAfterCancel()
 
     handlePointsChange:(ev) =>
       ev.preventDefault()
       if @assignment.hasSubmittedSubmissions()
         @$discussionPointPossibleWarning.toggleAccessibly(@$assignmentPointsPossible.val() != "#{@initialPointsPossible}")
 
-    # separated out so we can easily stub it
-    scrollSidebar: $.scrollSidebar
+
+    # also separated for easy stubbing
+    loadNewEditor: ($textarea)->
+      RichContentEditor.loadNewEditor($textarea, { focus: true, manageParent: true})
 
     render: =>
       super
       $textarea = @$('textarea[name=message]').attr('id', _.uniqueId('discussion-topic-message'))
 
-      RichContentEditor.initSidebar(show: @scrollSidebar)
-      _.defer ->
-        RichContentEditor.loadNewEditor($textarea, { focus: true })
+      RichContentEditor.initSidebar()
+      _.defer =>
+        @loadNewEditor($textarea)
         $('.rte_switch_views_link').click (event) ->
           event.preventDefault()
           event.stopPropagation()
@@ -131,8 +153,8 @@ ConditionalRelease) ->
       _.defer(@renderPostToSisOptions) if ENV.POST_TO_SIS
       _.defer(@watchUnload)
       _.defer(@attachKeyboardShortcuts)
-      _.defer(@renderTabs) if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
-      _.defer(@loadConditionalRelease) if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
+      _.defer(@renderTabs) if @showConditionalRelease()
+      _.defer(@loadConditionalRelease) if @showConditionalRelease()
 
       @$(".datetime_field").datetime_field()
 
@@ -168,6 +190,7 @@ ConditionalRelease) ->
         sectionLabel: @messages.group_category_section_label
         fieldLabel: @messages.group_category_field_label
         lockedMessage: @messages.group_locked_message
+        inClosedGradingPeriod: @assignment.inClosedGradingPeriod()
 
       @groupCategorySelector.render()
 
@@ -190,7 +213,6 @@ ConditionalRelease) ->
 
     renderTabs: =>
       @$discussionEditView.tabs()
-      @$discussionDetailsTab.show()
       @toggleConditionalReleaseTab()
 
     loadConditionalRelease: =>
@@ -255,6 +277,18 @@ ConditionalRelease) ->
       @$('.attachmentRow').remove()
       @$('[name="attachment"]').show().focus()
 
+    saveFormData: =>
+      if @showConditionalRelease()
+        super.pipe (data, status, xhr) =>
+          assignment = data.assignment if data.set_assignment
+          @conditionalReleaseEditor.updateAssignment(assignment)
+          # Restore expected promise values
+          @conditionalReleaseEditor.save().pipe(
+            => new $.Deferred().resolve(data, status, xhr).promise()
+            (err) => new $.Deferred().reject(xhr, err).promise())
+      else
+        super
+
     submit: (event) =>
       event.preventDefault()
       event.stopPropagation()
@@ -308,6 +342,10 @@ ConditionalRelease) ->
       if @isAnnouncement()
         unless data.message?.length > 0
           errors['message'] = [{type: 'message_required_error', message: I18n.t("A message is required")}]
+      if @showConditionalRelease()
+        crErrors = @conditionalReleaseEditor.validateBeforeSave()
+        errors['conditional_release'] = crErrors if crErrors
+
       errors
 
     _validatePointsPossible: (data, errors) =>
@@ -323,8 +361,14 @@ ConditionalRelease) ->
     showErrors: (errors) ->
       # override view handles displaying override errors, remove them
       # before calling super
-      # see getFormValues in DueDateView.coffee
       delete errors.assignmentOverrides
+      if @showConditionalRelease()
+        # switch to a tab with errors
+        if errors['conditional_release']
+          @$discussionEditView.tabs("option", "active", 1)
+          @conditionalReleaseEditor.focusOnError()
+        else
+          @$discussionEditView.tabs("option", "active", 0)
       super(errors)
 
     toggleGradingDependentOptions: ->
@@ -337,15 +381,24 @@ ConditionalRelease) ->
       else
         @$availabilityOptions.show()
 
+    showConditionalRelease: ->
+      ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED && !@isAnnouncement()
+
     toggleConditionalReleaseTab: ->
-      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED
+      if @showConditionalRelease()
         if @$useForGrading.is(':checked')
           @$discussionEditView.tabs("option", "disabled", false)
         else
           @$discussionEditView.tabs("option", "disabled", [1])
-          @$discussionDetailsTab.show()
+          @$discussionEditView.tabs("option", "active", 0)
 
     onChange: ->
-      if ENV.CONDITIONAL_RELEASE_SERVICE_ENABLED && !@assignmentDirty
-        @assignmentDirty = true
-        @conditionalReleaseEditor.setProps({ assignmentDirty: true })
+      if @showConditionalRelease() && @assignmentUpToDate
+        @assignmentUpToDate = false
+
+    onTabChange: ->
+      if @showConditionalRelease() && !@assignmentUpToDate && @conditionalReleaseEditor
+        assignmentData = @getFormData().assignment?.attributes
+        @conditionalReleaseEditor.updateAssignment(assignmentData)
+        @assignmentUpToDate = true
+      true

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2011 Instructure, Inc.
+# Copyright (C) 2011 - 2016 Instructure, Inc.
 #
 # This file is part of Canvas.
 #
@@ -20,13 +20,7 @@ class AssignmentGroup < ActiveRecord::Base
 
   include Workflow
 
-  attr_accessible :assignment_weighting_scheme,
-                  :default_assignment_name,
-                  :group_weight,
-                  :name,
-                  :position,
-                  :rules,
-                  :sis_source_id
+  strong_params
 
   attr_readonly :context_id, :context_type
   belongs_to :context, polymorphic: [:course]
@@ -75,7 +69,14 @@ class AssignmentGroup < ActiveRecord::Base
     can :read
 
     given { |user, session| self.context.grants_right?(user, session, :manage_assignments) }
-    can :read and can :create and can :update and can :delete
+    can :read and can :create and can :update
+
+    given do |user, session|
+      self.context.grants_right?(user, session, :manage_assignments) &&
+        (self.context.account_membership_allows(user) ||
+         !any_assignment_in_closed_grading_period?)
+    end
+    can :delete
   end
 
   workflow do
@@ -142,7 +143,7 @@ class AssignmentGroup < ActiveRecord::Base
   end
 
   def points_possible
-    self.assignments.map{|a| a.points_possible || 0}.sum
+    self.assignments.reduce(0) { |sum, assignment| sum + (assignment.points_possible || 0) }
   end
 
   scope :include_active_assignments, -> { preload(:active_assignments) }
@@ -158,7 +159,7 @@ class AssignmentGroup < ActiveRecord::Base
 
   set_broadcast_policy do |p|
     p.dispatch :grade_weight_changed
-    p.to { context.participating_students }
+    p.to { context.participating_students_by_date }
     p.whenever { |record|
       false &&
       record.changed_in_state(:available, :fields => :group_weight)
@@ -183,22 +184,28 @@ class AssignmentGroup < ActiveRecord::Base
     return false unless PluginSetting.settings_for_plugin(:assignment_freezer)
     return false unless self.active_assignments.length > 0
 
-    self.active_assignments.each do |asmnt|
-      return true if asmnt.frozen_for_user?(user)
+    self.active_assignments.any? do |assignment|
+      assignment.frozen_for_user?(user)
     end
-
-    false
   end
 
   def has_frozen_assignment_group_id_assignment?(user)
     return false unless PluginSetting.settings_for_plugin(:assignment_freezer)
     return false unless self.active_assignments.length > 0
 
-    self.active_assignments.each do |asmnt|
-      return true if asmnt.att_frozen?(:assignment_group_id,user)
+    self.active_assignments.any? do |assignment|
+      assignment.att_frozen?(:assignment_group_id, user)
     end
-    false
   end
+
+  def any_assignment_in_closed_grading_period?
+    effective_due_dates.any_in_closed_grading_period?
+  end
+
+  def effective_due_dates
+    @effective_due_dates ||= EffectiveDueDates.for_course(context, published_assignments)
+  end
+  private :effective_due_dates
 
   def visible_assignments(user, includes=[])
     self.class.visible_assignments(user, self.context, [self], includes)
