@@ -1,0 +1,74 @@
+Pulled code from instructure/stable on 01-18-2017, SHA: a394f31af1d5c1abfc8005bcd0be84ad5870b179
+Fixed merge conflicts.
+
+Get the Canvas analytics branch updated
+cd ~/src/development/analytics
+git checkout master
+git pull instructure stable
+# Deal with merge conflicts, add the resolved files and then
+git commit -m "Pull latest code to match instructure/stable commit <insert SHA>"
+
+
+Installed latest ruby version on Admin server using:
+$ rvm get stable
+$ rvm install 2.3.3
+$ rvm use 2.3.3
+
+Installed latest ruby version on Canvas server using:
+$ sudo apt-get remove ruby2.1 ruby2.1-dev libruby2.1
+$ sudo apt-get autoremove
+$ sudo rm -rf /var/lib/gems/2.1.0
+$ sudo apt-get install software-properties-common
+$ sudo apt-add-repository ppa:brightbox/ruby-ng
+$ sudo apt-get update
+$ sudo apt-get install ruby2.3 ruby2.3-dev zlib1g-dev libxml2-dev \
+                       libsqlite3-dev postgresql libpq-dev \
+                       libxmlsec1-dev curl make g++
+$ ruby -v
+2.3.3
+
+Upgraded node on both Admin and Canvas server using:
+$ curl -sL https://deb.nodesource.com/setup_6.x | sudo -E bash -
+$ sudo apt-get install nodejs
+$ node -v
+v6.9.4
+$ npm -v
+3.10.10
+
+If the node version doesn't match, do this:
+$ sudo npm cache clean -f
+$ sudo npm install -g n
+$ sudo n 6.9.4
+
+
+Upgraded bundler on Admin 
+$ gem uninstall bundler -v 1.11.2
+$ gem install bundler --version 1.13.6
+
+Upgraded bundler on Canvas server using:
+$ sudo gem uninstall bundler -v 1.11.2
+$ sudo gem install bundler --version 1.13.6
+
+# Upgrade to GCC 5 for certain node packages to compile correctly.
+$ sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+$ sudo apt-get update
+$ sudo apt-get install gcc-5 g++-5
+$ sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-5 80 --slave /usr/bin/g++ g++ /usr/bin/g++-5
+$ sudo update-alternatives --config gcc
+       (choose gcc-5 from the list)
+
+
+On the Admin server, generate a new Gemfile.lock by running the following
+$ rm Gemfile.lock
+$ bundle install --path vendor/bundle
+
+Check Gemfile.lock in b/c Capistrano needs it checked in to run.
+Change the lms_release_<servername>.bat script to call
+$ rvm use 2.3.3
+
+Then run the lms_release_<servername>.bat
+
+After the cap deploy, on the Canvas server make sure rails is the right version:
+$ cd /var/canvas/current
+$ bundle exec rails -v
+Rails 4.2.7.1
