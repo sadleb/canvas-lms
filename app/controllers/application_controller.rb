@@ -2392,45 +2392,51 @@ class ApplicationController < ActionController::Base
 
   private
   def extra_logging
-    # Clean out things we can't JSONify so it doesn't crash.
-    def filter_hash(main_hash)
-      main_hash.each_with_object({}) do |(k, v), h|
-        # remove cookie values so we don't clutter the logs
-        if(k.to_s.downcase.include? 'cookie')
-          next
-        end
-        if(v.is_a?(Hash))
-          ch = filter_hash(v)
-          h[k] = ch
-        elsif(v.is_a?(Array))
-          h[k] = v.map do |e|
-            e.is_a?(Hash) ? filter_hash(e) : e
+    data = Hash.new
+
+    begin
+      # Clean out things we can't JSONify so it doesn't crash.
+      def filter_hash(main_hash)
+        main_hash.each_with_object({}) do |(k, v), h|
+          # remove cookie values so we don't clutter the logs
+          if(k.to_s.downcase.include? 'cookie')
+            next
           end
-        elsif(v.is_a?(String))
-          h[k] = v
-        elsif(v.is_a?(Integer))
-          h[k] = v
+          if(v.is_a?(Hash))
+            ch = filter_hash(v)
+            h[k] = ch
+          elsif(v.is_a?(Array))
+            h[k] = v.map do |e|
+              e.is_a?(Hash) ? filter_hash(e) : e
+            end
+          elsif(v.is_a?(String))
+            h[k] = v
+          elsif(v.is_a?(Integer))
+            h[k] = v
+          end
         end
       end
-    end
 
-    data = {
-      'request' => {
-        'method' => request.method,
-        'headers' => filter_hash(request.headers.env),
-        'ip' => request.ip,
-        'fullpath' => request.fullpath,
-        'remote_ip' => request.remote_ip,
-        'id' => RequestContextGenerator.request_id,
-      },
-      'api_request' => @api_request,
-      'action_name' => @_action_name,
-      'session' => session.to_hash,
-      'response' => {
-        'code' => response.code,
-      },
-      'user' => @current_user,
-    }
+      data = {
+        'request' => {
+          'method' => request.method,
+          'headers' => filter_hash(request.headers.env),
+          'ip' => request.ip,
+          'fullpath' => request.fullpath,
+          'remote_ip' => request.remote_ip,
+          'id' => RequestContextGenerator.request_id,
+        },
+        'api_request' => @api_request,
+        'action_name' => @_action_name,
+        'session' => session.to_hash,
+        'response' => {
+          'code' => response.code,
+        },
+        'user' => @current_user,
+      }
+    rescue Exception => error
+      data['error_msg'] = "Error from extra_logging: #{error.to_s}"
+    end
 
     yield
 
@@ -2441,7 +2447,11 @@ class ApplicationController < ActionController::Base
     # Crash away
     raise
   ensure
-    Rails.logger.info(data.to_json)
+    begin
+      Rails.logger.info(data.to_json)
+    rescue Exception => error
+      Rails.logger.info("{\"error_msg\": \"Error from extra_logging (bad JSON): #{error.to_s}\"}")
+    end
   end
 
 end
