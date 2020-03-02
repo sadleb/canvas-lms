@@ -890,10 +890,14 @@ module ApplicationHelper
   # all pages that aren't `new_html` now use bz_newui.css.
   # the "bz_newui" name change is kept for now for cross-repo compatibility
   def bz_css_choice(orig)
-    if defined? @page and defined? @page.new_html? and @page.new_html?
+    def new_html?(obj)
+      obj and defined? obj.new_html? and obj.new_html?
+    end
+
+    if defined? @page and new_html?(@page)
       # wiki_page
       orig.sub("bz_custom.css", "braven_newui.css")
-    elsif defined? @assignment and defined? @assignment.new_html? and @assignment.new_html?
+    elsif defined? @assignment and new_html?(@assignment)
       # assignment
       orig.sub("bz_custom.css", "braven_newui.css")
     else
