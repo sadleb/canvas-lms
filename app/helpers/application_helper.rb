@@ -887,10 +887,18 @@ module ApplicationHelper
     end
   end
 
-  # all courses now use bz_newui.css, so we just rename it here.
-  # the name change is kept for now for cross-repo compatibility
+  # all pages that aren't `new_html` now use bz_newui.css.
+  # the "bz_newui" name change is kept for now for cross-repo compatibility
   def bz_css_choice(orig)
-    orig.sub("bz_custom.css", "bz_newui.css")
+    if defined? @page and defined? @page.new_html? and @page.new_html?
+      # wiki_page
+      orig.sub("bz_custom.css", "braven_newui.css")
+    elsif defined? @assignment and defined? @assignment.new_html? and @assignment.new_html?
+      # assignment
+      orig.sub("bz_custom.css", "braven_newui.css")
+    else
+      orig.sub("bz_custom.css", "bz_newui.css")
+    end
   end
 
   # this should be the same as friendlyDatetime in handlebars_helpers.coffee
