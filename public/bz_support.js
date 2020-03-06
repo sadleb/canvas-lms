@@ -124,7 +124,7 @@ function bzRetainedInfoSetup(readonly) {
       element.checked = (value == element.value) ? true : false;
     } else if(element.tagName == "INPUT" && element.getAttribute("type") == "button"){
       if (value == "clicked"){
-       element.className += " bz-was-clicked";
+        element.classList.add("bz-was-clicked");
       }
     } else if(element.tagName == "INPUT" || element.tagName == "TEXTAREA"){
       element.value = value;
